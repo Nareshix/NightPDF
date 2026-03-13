@@ -1,0 +1,18 @@
+[package]
+name = "pdf-viewer"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "pdf-viewer"
+path = "src/main.rs"
+
+[dependencies]
+eframe = { version = "0.31", features = ["default"] }
+egui = "0.31"
+pdfium-render = { version = "0.8.37", features = ["image_latest", "thread_safe"] }
+image = "0.25"
+arboard = "3"
+rfd = "0.15"
+log = "0.4"
+env_logger = "0.11"
