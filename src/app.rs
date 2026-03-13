@@ -396,8 +396,13 @@
                         return;
                     }
 
-                    let avail_w = ui.available_width();
-                    let viewport_rect = ui.clip_rect();
+let avail_w = ui.available_width();
+
+if (avail_w - self.last_avail_w).abs() > 1.0 {
+    self.page_cache.clear();
+    self.page_cache_order.clear();
+    self.last_avail_w = avail_w;
+}                    let viewport_rect = ui.clip_rect();
                     let viewport_center_y = viewport_rect.center().y;
 
                     let mut best_page = self.current_page;

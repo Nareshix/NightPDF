@@ -55,6 +55,8 @@ pub struct PdfViewer {
     pub show_toolbar: bool,
     pub toolbar_hover_shown: bool,
 
+    pub last_avail_w: f32,
+
 }
 
 impl PdfViewer {
@@ -96,7 +98,7 @@ impl PdfViewer {
             zoom_input: String::new(),
             show_toolbar: true,
 toolbar_hover_shown: false,
-
+last_avail_w: 0.0,
         }
     }
 
