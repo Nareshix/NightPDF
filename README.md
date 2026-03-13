@@ -1,1 +1,25 @@
 wip
+pdf-viewer features
+- [] select texts
+- [] search (ctrl-f)
+- [] open pdf file (ctrl-o)
+- [] ctrl a to select all texts
+- [] ctrl c to copy selected texts
+- [] ctrl s to save pdf file
+- [] ctrl p to print pdf file
+- [] highlight texts
+- [] add images to pdf file
+- [] add comments to pdf file
+- [] add texts to pdf file (text box)
+- [] draw on pdf file
+- [] smooth scroll
+- [] support for dark mode
+- [] pgdown and pgup to scroll pages
+- [] zoom
+- [] rotate pages
+- [] goto page number
+- [] signature
+- [] jump to links in pdf
+- [] zoom (pinch or ctrl +/-)
+- [] hover links to show tooltip?
+- [] direct editing of pdf files?

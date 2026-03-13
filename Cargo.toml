@@ -1,10 +1,10 @@
 [package]
-name = "pdf-viewer"
+name = "NightPDF"
 version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "pdf-viewer"
+name = "NightPDF"
 path = "src/main.rs"
 
 [dependencies]
