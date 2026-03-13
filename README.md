@@ -27,3 +27,4 @@ pdf-viewer features
 - [] support for opening multiple pdf files in tabs?
 - [] have option to not invert images in dark mode (or specific images and remembers them.)
 - [] wasm
+- [] accelerated scrolling
