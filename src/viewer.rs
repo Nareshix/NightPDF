@@ -65,7 +65,7 @@ impl PdfViewer {
             page_cache: HashMap::new(),
             page_cache_order: VecDeque::new(),
             theme_idx: 2,
-            zoom: 1.0,
+            zoom: 0.85,
             drag_start: None,
             drag_end: None,
             selected_text: String::new(),
@@ -113,22 +113,23 @@ impl PdfViewer {
             .map(|l| l.to_string())
             .collect();
 
-        lines.push(format!("{}|{}", path, self.scroll_offset));
+        lines.push(format!("{}|{}|{}", path, self.scroll_offset, self.zoom));
         let _ = std::fs::write(&bm_path, lines.join("\n"));
     }
 
-    fn load_bookmark(&self) -> Option<f32> {
+    fn load_bookmark(&self) -> Option<(f32, f32)> {
         let path = self.current_file_path.as_ref()?;
-        std::fs::read_to_string(Self::bookmarks_path())
+        let line = std::fs::read_to_string(Self::bookmarks_path())
             .ok()?
             .lines()
             .find(|l| l.starts_with(path.as_str()))?
-            .split('|')
-            .nth(1)?
-            .parse()
-            .ok()
+            .to_string();
+        let mut parts = line.split('|');
+        parts.next(); // skip path
+        let scroll = parts.next()?.parse().ok()?;
+        let zoom = parts.next()?.parse().unwrap_or(1.0);
+        Some((scroll, zoom))
     }
-
     pub fn load_pdf(&mut self, path: &std::path::Path) {
         let pdfium = PDFIUM.get().unwrap();
 
@@ -174,9 +175,9 @@ impl PdfViewer {
         self.scroll_offset = 0.0;
 
         // Restore last position for this file
-        self.current_file_path = path.to_str().map(|s| s.to_string());
-        if let Some(saved) = self.load_bookmark() {
-            self.scroll_offset = saved;
+        if let Some((scroll, zoom)) = self.load_bookmark() {
+            self.scroll_offset = scroll;
+            self.zoom = zoom;
         }
     }
 

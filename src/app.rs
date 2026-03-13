@@ -78,12 +78,16 @@ impl eframe::App for PdfViewer {
         }
 
         if ctrl_plus {
+            let old_zoom = self.zoom;
             self.zoom = (self.zoom + 0.15).min(3.0);
+            self.scroll_offset *= self.zoom / old_zoom;
             self.page_cache.clear();
             self.page_cache_order.clear();
         }
         if ctrl_minus {
+            let old_zoom = self.zoom;
             self.zoom = (self.zoom - 0.15).max(0.3);
+            self.scroll_offset *= self.zoom / old_zoom;
             self.page_cache.clear();
             self.page_cache_order.clear();
         }
@@ -214,7 +218,7 @@ impl eframe::App for PdfViewer {
                     self.show_zoom_input = false;
                 }
                 if ui.button("↺").on_hover_text("Reset zoom to 100%").clicked() {
-                    self.zoom = 1.0;
+                    self.zoom = 0.85;
                     self.page_cache.clear();
                     self.page_cache_order.clear();
                     self.show_zoom_input = false;
@@ -336,14 +340,14 @@ impl eframe::App for PdfViewer {
                     .vertical_scroll_offset(self.scroll_offset)
                     .wheel_scroll_multiplier(egui::Vec2::new(1.0, 10.0))
                     .show(ui, |ui| {
-
                         for page_idx in 0..self.total_pages {
                             let size = self.page_display_size(page_idx, avail_w);
 
-                            ui.horizontal(|ui| {
-                                let (page_rect, response) =
-                                    ui.allocate_exact_size(size, Sense::click_and_drag());
-                                if self.page_screen_rects.len() > page_idx {
+ui.horizontal(|ui| {
+    let side_pad = ((avail_w - size.x) / 2.0).max(0.0);
+    ui.add_space(side_pad);
+    let (page_rect, response) =
+        ui.allocate_exact_size(size, Sense::click_and_drag());                                if self.page_screen_rects.len() > page_idx {
                                     self.page_screen_rects[page_idx] = page_rect;
                                 }
 
