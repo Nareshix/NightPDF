@@ -5,6 +5,10 @@ use crate::theme::{self, THEMES};
 use crate::viewer::PdfViewer;
 
 impl eframe::App for PdfViewer {
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.save_bookmark();
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Check if the user is typing in a text box (like the search bar)
         let wants_keyboard = ctx.wants_keyboard_input();
@@ -549,7 +553,14 @@ impl eframe::App for PdfViewer {
                 });
 
             self.scroll_offset = scroll_output.state.offset.y;
-            self.current_page = best_page; // Update active page based on closest to center
+            self.current_page = best_page;
+
+            // ── AUTOSAVE BOOKMARK every 2 seconds ────────────────────────────
+            let now = ctx.input(|i| i.time);
+            if (now - self.last_save_time) > 2.0 {
+                self.save_bookmark();
+                self.last_save_time = now;
+            }
 
             // ── AUTO-SCROLL WHEN DRAGGING ─────────────────────────────────────────
             if self.drag_start.is_some() && ctx.input(|i| i.pointer.primary_down()) {

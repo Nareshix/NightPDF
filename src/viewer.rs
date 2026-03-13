@@ -51,6 +51,10 @@ pub struct PdfViewer {
 
     pub scroll_offset: f32,
     pub scroll_velocity: f32,
+
+    // Bookmark / restore position
+    pub current_file_path: Option<String>,
+    pub last_save_time: f64,
 }
 
 impl PdfViewer {
@@ -90,7 +94,44 @@ impl PdfViewer {
             page_screen_rects: Vec::new(),
             scroll_offset: 0.0,
             scroll_velocity: 0.0,
+
+            current_file_path: None,
+            last_save_time: 0.0,
         }
+    }
+
+    fn bookmarks_path() -> std::path::PathBuf {
+        let mut p = std::env::current_exe().unwrap_or_default();
+        p.pop();
+        p.push("pdf_bookmarks.txt");
+        p
+    }
+
+    pub fn save_bookmark(&self) {
+        let Some(path) = &self.current_file_path else { return };
+        let bm_path = Self::bookmarks_path();
+
+        let mut lines: Vec<String> = std::fs::read_to_string(&bm_path)
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| !l.starts_with(path.as_str()))
+            .map(|l| l.to_string())
+            .collect();
+
+        lines.push(format!("{}|{}", path, self.scroll_offset));
+        let _ = std::fs::write(&bm_path, lines.join("\n"));
+    }
+
+    fn load_bookmark(&self) -> Option<f32> {
+        let path = self.current_file_path.as_ref()?;
+        std::fs::read_to_string(Self::bookmarks_path())
+            .ok()?
+            .lines()
+            .find(|l| l.starts_with(path.as_str()))?
+            .split('|')
+            .nth(1)?
+            .parse()
+            .ok()
     }
 
     pub fn load_pdf(&mut self, path: &std::path::Path) {
@@ -138,6 +179,12 @@ impl PdfViewer {
         self.page_screen_rects = vec![Rect::ZERO; self.total_pages];
         self.scroll_offset = 0.0;
         self.scroll_velocity = 0.0;
+
+        // Restore last position for this file
+        self.current_file_path = path.to_str().map(|s| s.to_string());
+        if let Some(saved) = self.load_bookmark() {
+            self.scroll_offset = saved;
+        }
     }
 
     pub fn ensure_page_rendered(&mut self, page_idx: usize, ctx: &egui::Context) {
@@ -512,7 +559,7 @@ impl PdfViewer {
         }
         self.search_match_count = self.search_bounds.len();
         if self.search_match_count == 0 {
-            self.jump_to_match = false; // Nowhere to scroll if no matches
+            self.jump_to_match = false;
         }
     }
 
