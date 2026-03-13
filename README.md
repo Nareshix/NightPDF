@@ -47,3 +47,8 @@ ocr?
 
 use egui-phosphor for icons rn folder icon look weird on linux
 ctrl + scroll not implemented. might do in future if i get a mouse
+
+
+# Todo
+rfd needs to be spawned in another thread
+search hangs main thread if pdf is large. need to spawn in another thread
