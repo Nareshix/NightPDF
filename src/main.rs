@@ -6,6 +6,7 @@ use rfd::FileDialog;
 use std::collections::HashMap;
 
 const THEMES: &[(&str, u8, u8, u8)] = &[
+    ("Original",       255, 255, 255),  // no transform — raw PDF colors
     ("Classic Dark",   0,   0,   0  ),
     ("Claude Warm",    42,  37,  34 ),
     ("ChatGPT Cool",   52,  53,  65 ),
@@ -36,8 +37,9 @@ fn average_brightness(rgba: &RgbaImage) -> f32 {
 }
 
 fn apply_theme(rgba: &mut RgbaImage, idx: usize) {
+    if idx == 0 { return; }  // Original — leave PDF untouched
     let avg = average_brightness(rgba);
-    if avg < 80.0 { return; }
+    if avg < 128.0 { return; }
 
     let (_, r, g, b) = THEMES[idx];
     let (br, bg, bb) = (r as f32, g as f32, b as f32);
@@ -111,7 +113,7 @@ impl PdfViewer {
             page_cache: HashMap::new(),
             char_cache: Vec::new(),
             char_cache_page: None,
-            theme_idx: 1,
+            theme_idx: 2,
             zoom: 1.0,
             drag_start: None,
             drag_end: None,
@@ -427,10 +429,10 @@ impl PdfViewer {
 
 impl eframe::App for PdfViewer {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let (open, ctrl_f, ctrl_c, esc, enter) = ctx.input(|i| (
-            i.key_pressed(Key::O) && i.modifiers.ctrl,
-            i.key_pressed(Key::F) && i.modifiers.ctrl,
-            i.key_pressed(Key::C) && i.modifiers.ctrl,
+        let (open, ctrl_f, ctrl_c, esc, enter) = ctx.input_mut(|i| (
+            i.consume_key(egui::Modifiers::CTRL, Key::O),
+            i.consume_key(egui::Modifiers::CTRL, Key::F),
+            i.consume_key(egui::Modifiers::CTRL, Key::C),
             i.key_pressed(Key::Escape),
             i.key_pressed(Key::Enter),
         ));
@@ -446,13 +448,13 @@ impl eframe::App for PdfViewer {
 
         if raw_scroll.abs() > 0.1 {
             // Amplify: multiply by ~25× to match Chrome-style trackpad feel
-            self.scroll_velocity += raw_scroll * 100.0;
+            self.scroll_velocity += raw_scroll * 25.0;
             // Higher cap so fast swipes can actually cover many pages
             self.scroll_velocity = self.scroll_velocity.clamp(-8000.0, 8000.0);
         }
 
         // Exponential decay — tune the 12.0 constant to taste (higher = stops faster)
-        let friction = (-8.0 * dt).exp();
+        let friction = (-12.0_f32 * dt).exp();
         self.scroll_velocity *= friction;
 
         // Apply velocity to offset (scroll down = positive offset)
@@ -508,7 +510,7 @@ impl eframe::App for PdfViewer {
                         egui::TextEdit::singleline(&mut self.search_input).hint_text("Search all pages…"),
                     );
                     resp.request_focus();
-                    if (resp.lost_focus() && enter) || ui.button("Find").clicked() {
+                    if (resp.has_focus() && enter) || ui.button("Find").clicked() {
                         self.search_query = self.search_input.clone();
                         self.do_search();
                     }
