@@ -54,7 +54,7 @@ pub struct PdfViewer {
 
 impl PdfViewer {
     pub fn new() -> Self {
-        PDFIUM.get_or_init(|| Pdfium::default());
+        PDFIUM.get_or_init(Pdfium::default);
 
         Self {
             document: None,

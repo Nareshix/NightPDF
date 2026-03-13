@@ -57,11 +57,10 @@ impl eframe::App for PdfViewer {
             self.jump_input.clear();
             self.jump_error = false;
         }
-        if do_copy {
-            if !self.selected_text.is_empty() {
+        if do_copy
+            && !self.selected_text.is_empty() {
                 ctx.copy_text(self.selected_text.clone());
             }
-        }
         if ctrl_a {
             self.select_all();
         }
@@ -142,20 +141,18 @@ impl eframe::App for PdfViewer {
                             self.show_jump = false;
                             self.jump_error = false;
                         }
-                    } else {
-                        if ui
-                            .button(format!(
-                                "📄 {} / {}",
-                                self.current_page + 1,
-                                self.total_pages
-                            ))
-                            .on_hover_text("Jump to page (Ctrl+G)")
-                            .clicked()
-                        {
-                            self.show_jump = true;
-                            self.jump_input.clear();
-                            self.jump_error = false;
-                        }
+                    } else if ui
+                        .button(format!(
+                            "📄 {} / {}",
+                            self.current_page + 1,
+                            self.total_pages
+                        ))
+                        .on_hover_text("Jump to page (Ctrl+G)")
+                        .clicked()
+                    {
+                        self.show_jump = true;
+                        self.jump_input.clear();
+                        self.jump_error = false;
                     }
                 } else {
                     ui.label("📄 0 pages");
@@ -182,11 +179,10 @@ impl eframe::App for PdfViewer {
                         self.search_current_match = 0;
                     }
                 }
-                if !self.selected_text.is_empty() {
-                    if ui.button("📋 Copy  Ctrl+C").clicked() {
+                if !self.selected_text.is_empty()
+                    && ui.button("📋 Copy  Ctrl+C").clicked() {
                         ctx.copy_text(self.selected_text.clone());
                     }
-                }
             });
             ui.add_space(4.0);
         });
@@ -222,8 +218,8 @@ impl eframe::App for PdfViewer {
                         self.do_search();
                     }
 
-                    if resp.has_focus() || (resp.lost_focus() && enter_pressed) {
-                        if enter_pressed {
+                    if (resp.has_focus() || (resp.lost_focus() && enter_pressed))
+                        && enter_pressed {
                             if shift_pressed {
                                 self.prev_search_match();
                             } else {
@@ -231,7 +227,6 @@ impl eframe::App for PdfViewer {
                             }
                             resp.request_focus();
                         }
-                    }
 
                     if self.search_match_count > 0 {
                         if ui.button(" < ").on_hover_text("Previous match").clicked() {
