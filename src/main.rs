@@ -6,7 +6,7 @@ mod app;
 use viewer::PdfViewer;
 
 fn main() -> eframe::Result<()> {
-    env_logger::init();
+    // env_logger::init();
     eframe::run_native(
         "NightPDF",
         eframe::NativeOptions {

@@ -44,3 +44,6 @@ Ctrl+scroll to zoom — standard in most document viewers
 Case-sensitive search toggle — currently always case-insensitive presumably
 
 ocr?
+
+use egui-phosphor for icons rn folder icon look weird on linux
+ctrl + scroll not implemented. might do in future if i get a mouse
