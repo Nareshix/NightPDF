@@ -28,3 +28,18 @@ pdf-viewer features
 - [] have option to not invert images in dark mode (or specific images and remembers them.)
 - [] wasm
 - [] accelerated scrolling
+
+
+Drag & drop to open — drop a PDF onto the window instead of using the file dialog
+Recent files list — remember last N opened files, show in a menu
+Keyboard scrolling — Page Up/Down, arrow keys, Home/End to jump to start/end
+Fit to width / fit to page zoom presets instead of only +/- increments
+Window title shows filename — currently probably just "PDF Dark Reader" always
+Rotate page — some PDFs open sideways
+
+
+Table of contents / outline panel — pdfium exposes this, side panel with clickable headings
+Page thumbnails sidebar — visual strip of pages on the left for quick navigation
+Invert colors toggle — useful for dark theme, separate from the theme system
+Ctrl+scroll to zoom — standard in most document viewers
+Case-sensitive search toggle — currently always case-insensitive presumably
