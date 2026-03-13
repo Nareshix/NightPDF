@@ -51,6 +51,10 @@ pub struct PdfViewer {
 
     pub show_zoom_input: bool,
     pub zoom_input: String,
+
+    pub show_toolbar: bool,
+    pub toolbar_hover_shown: bool,
+
 }
 
 impl PdfViewer {
@@ -90,6 +94,9 @@ impl PdfViewer {
             last_save_time: 0.0,
             show_zoom_input: false,
             zoom_input: String::new(),
+            show_toolbar: true,
+toolbar_hover_shown: false,
+
         }
     }
 
