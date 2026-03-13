@@ -50,7 +50,6 @@ pub struct PdfViewer {
     pub page_screen_rects: Vec<Rect>,
 
     pub scroll_offset: f32,
-    pub scroll_velocity: f32,
 
     // Bookmark / restore position
     pub current_file_path: Option<String>,
@@ -93,7 +92,6 @@ impl PdfViewer {
 
             page_screen_rects: Vec::new(),
             scroll_offset: 0.0,
-            scroll_velocity: 0.0,
 
             current_file_path: None,
             last_save_time: 0.0,
@@ -178,7 +176,6 @@ impl PdfViewer {
 
         self.page_screen_rects = vec![Rect::ZERO; self.total_pages];
         self.scroll_offset = 0.0;
-        self.scroll_velocity = 0.0;
 
         // Restore last position for this file
         self.current_file_path = path.to_str().map(|s| s.to_string());

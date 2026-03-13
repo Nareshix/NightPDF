@@ -10,12 +10,10 @@ impl eframe::App for PdfViewer {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Check if the user is typing in a text box (like the search bar)
         let wants_keyboard = ctx.wants_keyboard_input();
         let mut do_copy = false;
 
         let (open, ctrl_f, ctrl_a, esc, ctrl_g) = ctx.input_mut(|i| {
-            // Only steal the copy event if the search box IS NOT focused
             if !wants_keyboard {
                 if i.events.iter().any(|e| matches!(e, egui::Event::Copy)) {
                     do_copy = true;
@@ -32,7 +30,6 @@ impl eframe::App for PdfViewer {
                     || i.consume_key(egui::Modifiers::CTRL, Key::O),
                 i.consume_key(egui::Modifiers::COMMAND, Key::F)
                     || i.consume_key(egui::Modifiers::CTRL, Key::F),
-                // Only steal Ctrl+A if the search box IS NOT focused!
                 !wants_keyboard
                     && (i.consume_key(egui::Modifiers::COMMAND, Key::A)
                         || i.consume_key(egui::Modifiers::CTRL, Key::A)),
@@ -77,32 +74,7 @@ impl eframe::App for PdfViewer {
             self.show_jump = false;
             self.jump_error = false;
         }
-        // ── Fast Uniform Scrolling (No Bounce) ────────────────────────────────
-        // ── Momentum Scrolling ────────────────────────────────────────────────
-        let scroll_multiplier = 7.0;
-        let friction = 0.88; // 0.0 = instant stop, 1.0 = never stops. Tune this.
 
-        let scroll_y = ctx.input(|i| i.raw_scroll_delta.y);
-        let dt = ctx.input(|i| i.predicted_dt);
-
-        if scroll_y.abs() > 0.0 {
-            // New input: kick the velocity
-            self.scroll_velocity -= scroll_y * scroll_multiplier;
-        }
-
-        // Apply friction every frame to bleed off velocity
-        self.scroll_velocity *= friction;
-
-        // Stop entirely once velocity is negligible to avoid endless repaints
-        if self.scroll_velocity.abs() < 0.5 {
-            self.scroll_velocity = 0.0;
-        }
-
-        if self.scroll_velocity.abs() > 0.0 {
-            self.scroll_offset += self.scroll_velocity * dt * 60.0; // 60.0 normalises for 60fps
-            self.scroll_offset = self.scroll_offset.max(0.0);
-            ctx.request_repaint();
-        }
         // ── Toolbar ───────────────────────────────────────────────────────────
         egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
             ui.add_space(4.0);
@@ -126,7 +98,7 @@ impl eframe::App for PdfViewer {
                     });
                 ui.separator();
 
-                // ── Jump to Page Logic ──
+                // ── Jump to Page ──
                 if self.total_pages > 0 {
                     if self.show_jump {
                         let mut enter_pressed = false;
@@ -226,7 +198,6 @@ impl eframe::App for PdfViewer {
                 ui.horizontal(|ui| {
                     ui.label("🔍");
 
-                    // 1. Detect Enter key BEFORE the TextEdit has a chance to swallow it
                     let mut enter_pressed = false;
                     let mut shift_pressed = false;
                     ui.input(|i| {
@@ -236,25 +207,21 @@ impl eframe::App for PdfViewer {
                         }
                     });
 
-                    // 2. Draw the Search text box
                     let resp = ui.add_sized(
                         [280.0, 24.0],
                         egui::TextEdit::singleline(&mut self.search_input)
                             .hint_text("Search all pages…"),
                     );
 
-                    // Only request focus right when they press Ctrl+F
                     if ctrl_f {
                         resp.request_focus();
                     }
 
-                    // Live search as you type
                     if resp.changed() {
                         self.search_query = self.search_input.clone();
                         self.do_search();
                     }
 
-                    // 3. Process Enter jumps ONLY if the Search box is active.
                     if resp.has_focus() || (resp.lost_focus() && enter_pressed) {
                         if enter_pressed {
                             if shift_pressed {
@@ -262,21 +229,17 @@ impl eframe::App for PdfViewer {
                             } else {
                                 self.next_search_match();
                             }
-                            // Re-grab focus instantly so the user can just mash Enter repeatedly!
                             resp.request_focus();
                         }
                     }
 
                     if self.search_match_count > 0 {
-                        // Navigation Arrows
                         if ui.button(" < ").on_hover_text("Previous match").clicked() {
                             self.prev_search_match();
                         }
                         if ui.button(" > ").on_hover_text("Next match").clicked() {
                             self.next_search_match();
                         }
-
-                        // Match Counter
                         ui.colored_label(
                             Color32::from_rgb(100, 220, 120),
                             format!(
@@ -321,16 +284,16 @@ impl eframe::App for PdfViewer {
             let viewport_rect = ui.clip_rect();
             let viewport_center_y = viewport_rect.center().y;
 
-            // ── SCROLL TO PAGE LOGIC ──────────────────────────────────────────
+            // ── Scroll to page ────────────────────────────────────────────────
             if let Some(target_page) = self.target_scroll_page.take() {
-                let mut y_offset = 12.0; // Account for initial top padding
+                let mut y_offset = 12.0;
                 for i in 0..target_page {
-                    y_offset += self.page_display_size(i, avail_w).y + 8.0; // Cumulative pages + spacing
+                    y_offset += self.page_display_size(i, avail_w).y + 8.0;
                 }
                 self.scroll_offset = y_offset;
             }
 
-            // ── SCROLL TO MATCH LOGIC ─────────────────────────────────────────
+            // ── Scroll to search match ────────────────────────────────────────
             if self.jump_to_match && self.search_match_count > 0 {
                 self.jump_to_match = false;
                 let (page_idx, rect) = self.search_bounds[self.search_current_match];
@@ -344,16 +307,17 @@ impl eframe::App for PdfViewer {
                     let page_size = self.page_display_size(page_idx, avail_w);
                     let top_pt = rect.top().value;
                     let rel_y = ((info.height_pts - top_pt) / info.height_pts) * page_size.y;
-
                     self.scroll_offset = (y_offset + rel_y - 100.0).max(0.0);
                 }
             }
+
             let mut best_page = self.current_page;
             let mut best_dist = f32::MAX;
 
             let scroll_output = egui::ScrollArea::vertical()
                 .auto_shrink([false; 2])
                 .vertical_scroll_offset(self.scroll_offset)
+                .wheel_scroll_multiplier(egui::Vec2::new(1.0, 7.0))
                 .show(ui, |ui| {
                     ui.add_space(12.0);
 
@@ -374,7 +338,6 @@ impl eframe::App for PdfViewer {
                             let is_visible = viewport_rect.intersects(page_rect);
 
                             if is_visible {
-                                // Track which page is currently most central on screen
                                 let dist = (page_rect.center().y - viewport_center_y).abs();
                                 if dist < best_dist {
                                     best_dist = dist;
@@ -394,7 +357,7 @@ impl eframe::App for PdfViewer {
                                         Color32::WHITE,
                                     );
 
-                                    // Render Search Highlights
+                                    // Search highlights
                                     let mut search_rects = Vec::new();
                                     let mut active_rect = None;
 
@@ -444,7 +407,7 @@ impl eframe::App for PdfViewer {
                                         }
                                     }
 
-                                    // Render Text Selection Highlights
+                                    // Text selection highlights
                                     let sel_rects: Vec<_> = self
                                         .selected_rects
                                         .iter()
@@ -466,7 +429,6 @@ impl eframe::App for PdfViewer {
                                             let center_y_diff =
                                                 (sr.center().y - last.center().y).abs();
                                             let height = sr.height().min(last.height());
-
                                             if center_y_diff < height * 0.5 {
                                                 let gap = sr.min.x - last.max.x;
                                                 if gap < height * 2.0 && gap > -height {
@@ -569,14 +531,14 @@ impl eframe::App for PdfViewer {
             self.scroll_offset = scroll_output.state.offset.y;
             self.current_page = best_page;
 
-            // ── AUTOSAVE BOOKMARK every 2 seconds ────────────────────────────
+            // ── Autosave bookmark every 2 seconds ────────────────────────────
             let now = ctx.input(|i| i.time);
             if (now - self.last_save_time) > 2.0 {
                 self.save_bookmark();
                 self.last_save_time = now;
             }
 
-            // ── AUTO-SCROLL WHEN DRAGGING ─────────────────────────────────────────
+            // ── Auto-scroll when dragging near edges ──────────────────────────
             if self.drag_start.is_some() && ctx.input(|i| i.pointer.primary_down()) {
                 if let Some(pos) = ctx.input(|i| i.pointer.latest_pos()) {
                     let scroll_zone = 60.0;
