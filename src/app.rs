@@ -50,15 +50,16 @@ impl eframe::App for PdfViewer {
                             if ui.selectable_label(self.theme_idx == i, *name).clicked() {
                                 self.theme_idx = i;
                                 self.page_cache.clear();
+                                self.page_cache_order.clear();
                             }
                         }
                     });
                 ui.separator();
                 ui.label(format!("{} pages", self.total_pages));
                 ui.separator();
-                if ui.button("−").clicked() { self.zoom = (self.zoom - 0.15).max(0.3); self.page_cache.clear(); }
+                if ui.button("−").clicked() { self.zoom = (self.zoom - 0.15).max(0.3); self.page_cache.clear(); self.page_cache_order.clear(); }
                 ui.label(format!("{:.0}%", self.zoom * 100.0));
-                if ui.button("+").clicked() { self.zoom = (self.zoom + 0.15).min(3.0); self.page_cache.clear(); }
+                if ui.button("+").clicked() { self.zoom = (self.zoom + 0.15).min(3.0); self.page_cache.clear(); self.page_cache_order.clear(); }
                 ui.separator();
                 if ui.button("🔍  Ctrl+F").clicked() { self.show_search = !self.show_search; }
                 if !self.selected_text.is_empty() {
@@ -106,8 +107,8 @@ impl eframe::App for PdfViewer {
             ui.horizontal(|ui| {
                 if !self.selected_text.is_empty() {
                     let preview = if self.selected_text.len() > 70 {
-                        format!("{}…", &self.selected_text[..70])
-                    } else { self.selected_text.clone() };
+                        format!("{}…", &self.selected_text[..70].replace('\n', " "))
+                    } else { self.selected_text.replace('\n', " ") };
                     ui.colored_label(Color32::from_rgb(100, 200, 255), format!("\"{}\"", preview));
                     ui.weak("— Ctrl+C to copy");
                 } else {
@@ -228,13 +229,26 @@ impl eframe::App for PdfViewer {
                             if response.drag_started() {
                                 self.click_count = 0;
                                 self.clear_selection();
-                                self.drag_start = ctx.input(|i| i.pointer.interact_pos());
-                                self.drag_page = Some(page_idx);
+                                if let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) {
+                                    if let Some((px, py)) = self.screen_to_pdf_page(pos, page_idx) {
+                                        self.drag_start = Some((page_idx, Pos2::new(px, py)));
+                                        self.drag_end = self.drag_start; // init to prevent null
+                                    }
+                                }
                             }
+
                             if response.dragged() {
-                                self.drag_end = ctx.input(|i| i.pointer.interact_pos());
-                                self.update_selection();
-                                ctx.request_repaint();
+                                if let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) {
+                                    let target_page = self.page_at_pos(pos).or_else(|| self.nearest_page_to_pos(pos));
+
+                                    if let Some(curr_page) = target_page {
+                                        if let Some((px, py)) = self.screen_to_pdf_page(pos, curr_page) {
+                                            self.drag_end = Some((curr_page, Pos2::new(px, py)));
+                                            self.update_selection();
+                                            ctx.request_repaint();
+                                        }
+                                    }
+                                }
                             }
                         });
 
@@ -244,7 +258,48 @@ impl eframe::App for PdfViewer {
                     ui.add_space(12.0);
                 });
 
+            // Sync the scroll offset with the UI
             self.scroll_offset = scroll_output.state.offset.y;
+
+            // ── AUTO-SCROLL WHEN DRAGGING ─────────────────────────────────────────
+            // If the user is currently holding the mouse down to select text...
+            if self.drag_start.is_some() && ctx.input(|i| i.pointer.primary_down()) {
+                // We use latest_pos() so we still know where the mouse is even if it
+                // leaves the OS window boundaries.
+                if let Some(pos) = ctx.input(|i| i.pointer.latest_pos()) {
+                    let scroll_zone = 60.0;
+                    let scroll_speed = 1200.0;
+                    let dt = ctx.input(|i| i.predicted_dt);
+                    let mut auto_scrolled = false;
+
+                    // Mouse is near the bottom of the screen -> scroll down
+                    if pos.y > viewport_rect.bottom() - scroll_zone {
+                        let intensity = (pos.y - (viewport_rect.bottom() - scroll_zone)) / scroll_zone;
+                        self.scroll_offset += scroll_speed * intensity.clamp(0.0, 2.0) * dt;
+                        auto_scrolled = true;
+                    }
+                    // Mouse is near the top of the screen -> scroll up
+                    else if pos.y < viewport_rect.top() + scroll_zone {
+                        let intensity = ((viewport_rect.top() + scroll_zone) - pos.y) / scroll_zone;
+                        self.scroll_offset -= scroll_speed * intensity.clamp(0.0, 2.0) * dt;
+                        self.scroll_offset = self.scroll_offset.max(0.0);
+                        auto_scrolled = true;
+                    }
+
+                    // If the page moved underneath the mouse, we must update the text selection!
+                    if auto_scrolled {
+                        let target_page = self.page_at_pos(pos).or_else(|| self.nearest_page_to_pos(pos));
+                        if let Some(curr_page) = target_page {
+                            if let Some((px, py)) = self.screen_to_pdf_page(pos, curr_page) {
+                                self.drag_end = Some((curr_page, Pos2::new(px, py)));
+                                self.update_selection();
+                            }
+                        }
+                        // Request repaint to keep the auto-scroll animation looping
+                        ctx.request_repaint();
+                    }
+                }
+            }
         });
     }
 }

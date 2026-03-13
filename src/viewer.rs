@@ -1,7 +1,7 @@
 use arboard::Clipboard;
 use eframe::egui::{self, ColorImage, Pos2, Rect, TextureHandle, TextureOptions, Vec2};
 use pdfium_render::prelude::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::OnceLock;
 
 use crate::theme::{self};
@@ -12,18 +12,22 @@ use crate::types::PageInfo;
 pub static PDFIUM: OnceLock<Pdfium> = OnceLock::new();
 
 pub struct PdfViewer {
-    // We now store the parsed document natively, avoiding reloading!
+    // We store the parsed document natively, avoiding reloading!
     pub document: Option<PdfDocument<'static>>,
     pub total_pages: usize,
     pub page_infos: Vec<PageInfo>,
+
     pub page_cache: HashMap<usize, TextureHandle>,
+    // Proper LRU cache tracking to prevent dropping visible pages
+    pub page_cache_order: VecDeque<usize>,
 
     pub theme_idx: usize,
     pub zoom: f32,
 
-    pub drag_start: Option<Pos2>,
-    pub drag_end: Option<Pos2>,
-    pub drag_page: Option<usize>,
+    // Store drag positions as (page_index, pdf_coordinates) to allow cross-page drag!
+    pub drag_start: Option<(usize, Pos2)>,
+    pub drag_end: Option<(usize, Pos2)>,
+
     pub selected_text: String,
     pub selected_rects: Vec<(usize, PdfRect)>,
 
@@ -48,19 +52,18 @@ pub struct PdfViewer {
 
 impl PdfViewer {
     pub fn new() -> Self {
-        // Initialize the C++ library once on startup
-        PDFIUM.get_or_init(Pdfium::default);
+        PDFIUM.get_or_init(|| Pdfium::default());
 
         Self {
             document: None,
             total_pages: 0,
             page_infos: Vec::new(),
             page_cache: HashMap::new(),
+            page_cache_order: VecDeque::new(),
             theme_idx: 2,
             zoom: 1.0,
             drag_start: None,
             drag_end: None,
-            drag_page: None,
             selected_text: String::new(),
             selected_rects: Vec::new(),
             last_click_pos: None,
@@ -82,7 +85,6 @@ impl PdfViewer {
     pub fn load_pdf(&mut self, path: &std::path::Path) {
         let pdfium = PDFIUM.get().unwrap();
 
-        // Load file via the C++ engine (handles locking and memory safely)
         let Ok(doc) = pdfium.load_pdf_from_file(path.to_str().unwrap(), None) else {
             eprintln!("Cannot read file");
             return;
@@ -99,9 +101,10 @@ impl PdfViewer {
 
         self.total_pages = total_pages;
         self.page_infos = infos;
-        self.document = Some(doc); // Store the parsed document!
+        self.document = Some(doc);
 
         self.page_cache.clear();
+        self.page_cache_order.clear();
         self.clear_selection();
         self.search_bounds.clear();
         self.search_match_count = 0;
@@ -111,7 +114,14 @@ impl PdfViewer {
     }
 
     pub fn ensure_page_rendered(&mut self, page_idx: usize, ctx: &egui::Context) {
-        if self.page_cache.contains_key(&page_idx) { return; }
+        if self.page_cache.contains_key(&page_idx) {
+            // Update LRU cache order: mark as recently used
+            if let Some(pos) = self.page_cache_order.iter().position(|&p| p == page_idx) {
+                self.page_cache_order.remove(pos);
+                self.page_cache_order.push_back(page_idx);
+            }
+            return;
+        }
 
         let Some(doc) = &self.document else { return };
         let Ok(page) = doc.pages().get(page_idx as u16) else { return; };
@@ -123,7 +133,6 @@ impl PdfViewer {
 
         let Ok(bitmap) = page.render_with_config(&config) else { return; };
 
-        // Ask PDFium for raw bytes (BGRA) - bypasses the image crate!
         let width = bitmap.width() as usize;
         let height = bitmap.height() as usize;
         let mut pixels = bitmap.as_raw_bytes().to_vec();
@@ -136,12 +145,14 @@ impl PdfViewer {
             TextureOptions::LINEAR,
         );
 
-        if self.page_cache.len() >= 8 {
-            if let Some(&oldest) = self.page_cache.keys().next() {
+        // LRU Cache: Evict the oldest unused page if we exceed 15 pages in memory
+        if self.page_cache.len() >= 15 {
+            if let Some(oldest) = self.page_cache_order.pop_front() {
                 self.page_cache.remove(&oldest);
             }
         }
         self.page_cache.insert(page_idx, texture);
+        self.page_cache_order.push_back(page_idx);
     }
 
     pub fn screen_to_pdf_page(&self, pos: Pos2, page_idx: usize) -> Option<(f32, f32)> {
@@ -169,9 +180,16 @@ impl PdfViewer {
         self.page_screen_rects.iter().position(|r| r.contains(pos))
     }
 
-    /// Helper to find the character index nearest to a coordinate
+    // Helper for cross-page drag: if mouse is in the gap between pages, find the closest page
+    pub fn nearest_page_to_pos(&self, pos: Pos2) -> Option<usize> {
+        self.page_screen_rects.iter().enumerate().min_by(|(_, a), (_, b)| {
+            let dist_a = a.distance_sq_to_pos(pos);
+            let dist_b = b.distance_sq_to_pos(pos);
+            dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal)
+        }).map(|(i, _)| i)
+    }
+
     fn get_char_index_at(&self, px: f32, py: f32, chars: &[PdfPageTextChar]) -> Option<usize> {
-        // First check for a direct hit inside the bounding box
         for (i, ch) in chars.iter().enumerate() {
             if let Ok(b) = ch.loose_bounds() {
                 if px >= b.left().value && px <= b.right().value &&
@@ -181,7 +199,6 @@ impl PdfViewer {
             }
         }
 
-        // If not directly on a character, fallback to the nearest one
         chars.iter().enumerate().min_by(|(_, a), (_, b)| {
             let dist = |ch: &PdfPageTextChar| {
                 if let Ok(b) = ch.loose_bounds() {
@@ -197,35 +214,63 @@ impl PdfViewer {
     }
 
     pub fn update_selection(&mut self) {
-        let (Some(s), Some(e), Some(page_idx)) = (self.drag_start, self.drag_end, self.drag_page) else { return; };
-        let Some((sx, sy)) = self.screen_to_pdf_page(s, page_idx) else { return; };
-        let Some((ex, ey)) = self.screen_to_pdf_page(e, page_idx) else { return; };
-
+        let (Some((start_page, s_pos)), Some((end_page, e_pos))) = (self.drag_start, self.drag_end) else { return; };
         let Some(doc) = &self.document else { return; };
-        let Ok(page) = doc.pages().get(page_idx as u16) else { return; };
-        let Ok(text) = page.text() else { return; };
-
-        // Bind text.chars() to a variable so it lives long enough for the Vec
-        let text_chars = text.chars();
-        let chars: Vec<_> = text_chars.iter().collect();
-        if chars.is_empty() { return; }
-
-        let start_idx = self.get_char_index_at(sx, sy, &chars).unwrap_or(0);
-        let end_idx = self.get_char_index_at(ex, ey, &chars).unwrap_or(chars.len().saturating_sub(1));
-
-        let min_idx = start_idx.min(end_idx);
-        let max_idx = start_idx.max(end_idx);
 
         let mut selected_text = String::new();
         self.selected_rects.clear();
 
-        for i in min_idx..=max_idx {
-            let ch = &chars[i];
-            if let Some(s) = ch.unicode_string() {
-                selected_text.push_str(&s);
+        // Figure out visual reading order based on page indices
+        let (top_page, top_pos, bottom_page, bottom_pos) = if start_page < end_page {
+            (start_page, s_pos, end_page, e_pos)
+        } else if start_page > end_page {
+            (end_page, e_pos, start_page, s_pos)
+        } else {
+            (start_page, s_pos, end_page, e_pos)
+        };
+
+        // Loop across all pages encompassed by the drag!
+        for page_idx in top_page..=bottom_page {
+            let Ok(page) = doc.pages().get(page_idx as u16) else { continue; };
+            let Ok(text) = page.text() else { continue; };
+
+            let text_chars = text.chars();
+            let chars: Vec<_> = text_chars.iter().collect();
+            if chars.is_empty() { continue; }
+
+            // Determine start and end index for THIS specific page
+            let (p_start, p_end) = if top_page == bottom_page {
+                // Dragging entirely within a single page
+                let i1 = self.get_char_index_at(top_pos.x, top_pos.y, &chars).unwrap_or(0);
+                let i2 = self.get_char_index_at(bottom_pos.x, bottom_pos.y, &chars).unwrap_or(chars.len().saturating_sub(1));
+                (i1.min(i2), i1.max(i2))
+            } else if page_idx == top_page {
+                // Drag started here, ends on a later page. Select to the very bottom of this page.
+                let i = self.get_char_index_at(top_pos.x, top_pos.y, &chars).unwrap_or(0);
+                (i, chars.len().saturating_sub(1))
+            } else if page_idx == bottom_page {
+                // Drag ended here, started on an earlier page. Select from the very top of this page.
+                let i = self.get_char_index_at(bottom_pos.x, bottom_pos.y, &chars).unwrap_or(chars.len().saturating_sub(1));
+                (0, i)
+            } else {
+                // An intermediate page, select EVERYTHING on it.
+                (0, chars.len().saturating_sub(1))
+            };
+
+            for i in p_start..=p_end {
+                if i >= chars.len() { continue; }
+                let ch = &chars[i];
+                if let Some(s) = ch.unicode_string() {
+                    selected_text.push_str(&s);
+                }
+                if let Ok(bounds) = ch.loose_bounds() {
+                    self.selected_rects.push((page_idx, bounds));
+                }
             }
-            if let Ok(bounds) = ch.loose_bounds() {
-                self.selected_rects.push((page_idx, bounds));
+
+            // Insert a newline between pages
+            if page_idx < bottom_page {
+                selected_text.push('\n');
             }
         }
         self.selected_text = selected_text;
@@ -237,7 +282,6 @@ impl PdfViewer {
         let Ok(page) = doc.pages().get(page_idx as u16) else { return; };
         let Ok(text) = page.text() else { return; };
 
-        // Bind text.chars() to a variable so it lives long enough for the Vec
         let text_chars = text.chars();
         let chars: Vec<_> = text_chars.iter().collect();
         let Some(idx) = self.get_char_index_at(px, py, &chars) else { return; };
@@ -272,7 +316,6 @@ impl PdfViewer {
         let Ok(page) = doc.pages().get(page_idx as u16) else { return; };
         let Ok(text) = page.text() else { return; };
 
-        // Bind text.chars() to a variable so it lives long enough for the Vec
         let text_chars = text.chars();
         let chars: Vec<_> = text_chars.iter().collect();
         let Some(idx) = self.get_char_index_at(px, py, &chars) else { return; };
@@ -286,15 +329,25 @@ impl PdfViewer {
         let mut selected_text = String::new();
         self.selected_rects.clear();
 
-        // Grab all characters that share roughly the same Y-axis
+        // 1. Grab all characters that share roughly the same Y-axis
+        let mut line_chars = Vec::new();
         for ch in &chars {
             if let Ok(b) = ch.loose_bounds() {
                 let cy = (b.bottom().value + b.top().value) * 0.5;
                 if (cy - line_cy).abs() <= thresh {
-                    if let Some(s) = ch.unicode_string() { selected_text.push_str(&s); }
-                    self.selected_rects.push((page_idx, b));
+                    line_chars.push((b, ch.unicode_string().unwrap_or_default()));
                 }
             }
+        }
+
+        // 2. Sort by X-coordinate to prevent jumbled multi-column text
+        line_chars.sort_by(|(b1, _), (b2, _)| {
+            b1.left().value.partial_cmp(&b2.left().value).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        for (b, s) in line_chars {
+            selected_text.push_str(&s);
+            self.selected_rects.push((page_idx, b));
         }
         self.selected_text = selected_text;
     }
@@ -325,7 +378,6 @@ impl PdfViewer {
     pub fn clear_selection(&mut self) {
         self.drag_start = None;
         self.drag_end = None;
-        self.drag_page = None;
         self.selected_text.clear();
         self.selected_rects.clear();
     }
