@@ -1,16 +1,15 @@
 use eframe::egui::Color32;
 
 pub const THEMES: &[(&str, u8, u8, u8)] = &[
-    ("Original",       255, 255, 255),
-    ("Classic Dark",   0,   0,   0  ),
-    ("Claude Warm",    42,  37,  34 ),
-    ("ChatGPT Cool",   52,  53,  65 ),
-    ("Sepia Dark",     40,  35,  25 ),
-    ("Midnight Blue",  25,  30,  45 ),
-    ("Forest Green",   25,  35,  30 ),
+    ("Original",          255, 255, 255),
+    ("Classic Dark",      0,   0,   0  ),
+    ("Claude Warm",       42,  37,  34 ),
+    ("ChatGPT Cool",      52,  53,  65 ),
+    ("Sepia Dark",        40,  35,  25 ),
+    ("Midnight Blue",     25,  30,  45 ),
+    ("Forest Green",      25,  35,  30 ),
+    ("Mocha Blue",  30,  30,  46 ),
 ];
-
-/// Sample average brightness using a grid of pixels (fast, operates on raw BGRA bytes)
 pub fn average_brightness_bgra(pixels: &[u8], width: usize, height: usize) -> f32 {
     let step_x = (width / 20).max(1);
     let step_y = (height / 20).max(1);
@@ -37,7 +36,6 @@ pub fn average_brightness_bgra(pixels: &[u8], width: usize, height: usize) -> f3
     if count == 0 { 128.0 } else { sum / count as f32 }
 }
 
-/// Applies theme directly to PDFium's raw bytes, and converts BGRA -> RGBA for egui
 pub fn apply_theme_and_convert_bgra_to_rgba(pixels: &mut [u8], width: usize, height: usize, theme_idx: usize) {
     if theme_idx == 0 {
         // Original Theme: Just swap Blue and Red to make it RGBA for egui
@@ -68,9 +66,9 @@ pub fn apply_theme_and_convert_bgra_to_rgba(pixels: &mut [u8], width: usize, hei
         let lum = 0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32;
         let f = 1.0 - lum / 255.0;
 
-        chunk[0] = (br + (255.0 - br) * f) as u8; // R (now in slot 0 for RGBA)
-        chunk[1] = (bg + (255.0 - bg) * f) as u8; // G
-        chunk[2] = (bb + (255.0 - bb) * f) as u8; // B (now in slot 2 for RGBA)
+        chunk[0] = (br + (255.0 - br) * f) as u8;
+        chunk[1] = (bg + (255.0 - bg) * f) as u8;
+        chunk[2] = (bb + (255.0 - bb) * f) as u8;
     }
 }
 
