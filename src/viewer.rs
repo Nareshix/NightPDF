@@ -124,14 +124,19 @@ impl PdfViewer {
         }
 
         let Some(doc) = &self.document else { return };
-        let Ok(page) = doc.pages().get(page_idx as u16) else { return; };
+        let Ok(page) = doc.pages().get(page_idx as u16) else {
+            return;
+        };
 
         let render_w = (900.0 * self.zoom) as i32;
         let config = PdfRenderConfig::new()
             .set_target_width(render_w)
+            .set_maximum_height(render_w)
             .set_clear_color(PdfColor::WHITE);
 
-        let Ok(bitmap) = page.render_with_config(&config) else { return; };
+        let Ok(bitmap) = page.render_with_config(&config) else {
+            return;
+        };
 
         let width = bitmap.width() as usize;
         let height = bitmap.height() as usize;
@@ -182,40 +187,60 @@ impl PdfViewer {
 
     // Helper for cross-page drag: if mouse is in the gap between pages, find the closest page
     pub fn nearest_page_to_pos(&self, pos: Pos2) -> Option<usize> {
-        self.page_screen_rects.iter().enumerate().min_by(|(_, a), (_, b)| {
-            let dist_a = a.distance_sq_to_pos(pos);
-            let dist_b = b.distance_sq_to_pos(pos);
-            dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal)
-        }).map(|(i, _)| i)
+        self.page_screen_rects
+            .iter()
+            .enumerate()
+            .min_by(|(_, a), (_, b)| {
+                let dist_a = a.distance_sq_to_pos(pos);
+                let dist_b = b.distance_sq_to_pos(pos);
+                dist_a
+                    .partial_cmp(&dist_b)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|(i, _)| i)
     }
 
     fn get_char_index_at(&self, px: f32, py: f32, chars: &[PdfPageTextChar]) -> Option<usize> {
         for (i, ch) in chars.iter().enumerate() {
             if let Ok(b) = ch.loose_bounds() {
-                if px >= b.left().value && px <= b.right().value &&
-                   py >= b.bottom().value && py <= b.top().value {
+                if px >= b.left().value
+                    && px <= b.right().value
+                    && py >= b.bottom().value
+                    && py <= b.top().value
+                {
                     return Some(i);
                 }
             }
         }
 
-        chars.iter().enumerate().min_by(|(_, a), (_, b)| {
-            let dist = |ch: &PdfPageTextChar| {
-                if let Ok(b) = ch.loose_bounds() {
-                    let cx = (b.left().value + b.right().value) * 0.5;
-                    let cy = (b.bottom().value + b.top().value) * 0.5;
-                    (cx - px).powi(2) + (cy - py).powi(2)
-                } else {
-                    f32::MAX
-                }
-            };
-            dist(a).partial_cmp(&dist(b)).unwrap_or(std::cmp::Ordering::Equal)
-        }).map(|(i, _)| i)
+        chars
+            .iter()
+            .enumerate()
+            .min_by(|(_, a), (_, b)| {
+                let dist = |ch: &PdfPageTextChar| {
+                    if let Ok(b) = ch.loose_bounds() {
+                        let cx = (b.left().value + b.right().value) * 0.5;
+                        let cy = (b.bottom().value + b.top().value) * 0.5;
+                        (cx - px).powi(2) + (cy - py).powi(2)
+                    } else {
+                        f32::MAX
+                    }
+                };
+                dist(a)
+                    .partial_cmp(&dist(b))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|(i, _)| i)
     }
 
     pub fn update_selection(&mut self) {
-        let (Some((start_page, s_pos)), Some((end_page, e_pos))) = (self.drag_start, self.drag_end) else { return; };
-        let Some(doc) = &self.document else { return; };
+        let (Some((start_page, s_pos)), Some((end_page, e_pos))) = (self.drag_start, self.drag_end)
+        else {
+            return;
+        };
+        let Some(doc) = &self.document else {
+            return;
+        };
 
         let mut selected_text = String::new();
         self.selected_rects.clear();
@@ -231,26 +256,40 @@ impl PdfViewer {
 
         // Loop across all pages encompassed by the drag!
         for page_idx in top_page..=bottom_page {
-            let Ok(page) = doc.pages().get(page_idx as u16) else { continue; };
-            let Ok(text) = page.text() else { continue; };
+            let Ok(page) = doc.pages().get(page_idx as u16) else {
+                continue;
+            };
+            let Ok(text) = page.text() else {
+                continue;
+            };
 
             let text_chars = text.chars();
             let chars: Vec<_> = text_chars.iter().collect();
-            if chars.is_empty() { continue; }
+            if chars.is_empty() {
+                continue;
+            }
 
             // Determine start and end index for THIS specific page
             let (p_start, p_end) = if top_page == bottom_page {
                 // Dragging entirely within a single page
-                let i1 = self.get_char_index_at(top_pos.x, top_pos.y, &chars).unwrap_or(0);
-                let i2 = self.get_char_index_at(bottom_pos.x, bottom_pos.y, &chars).unwrap_or(chars.len().saturating_sub(1));
+                let i1 = self
+                    .get_char_index_at(top_pos.x, top_pos.y, &chars)
+                    .unwrap_or(0);
+                let i2 = self
+                    .get_char_index_at(bottom_pos.x, bottom_pos.y, &chars)
+                    .unwrap_or(chars.len().saturating_sub(1));
                 (i1.min(i2), i1.max(i2))
             } else if page_idx == top_page {
                 // Drag started here, ends on a later page. Select to the very bottom of this page.
-                let i = self.get_char_index_at(top_pos.x, top_pos.y, &chars).unwrap_or(0);
+                let i = self
+                    .get_char_index_at(top_pos.x, top_pos.y, &chars)
+                    .unwrap_or(0);
                 (i, chars.len().saturating_sub(1))
             } else if page_idx == bottom_page {
                 // Drag ended here, started on an earlier page. Select from the very top of this page.
-                let i = self.get_char_index_at(bottom_pos.x, bottom_pos.y, &chars).unwrap_or(chars.len().saturating_sub(1));
+                let i = self
+                    .get_char_index_at(bottom_pos.x, bottom_pos.y, &chars)
+                    .unwrap_or(chars.len().saturating_sub(1));
                 (0, i)
             } else {
                 // An intermediate page, select EVERYTHING on it.
@@ -258,7 +297,9 @@ impl PdfViewer {
             };
 
             for i in p_start..=p_end {
-                if i >= chars.len() { continue; }
+                if i >= chars.len() {
+                    continue;
+                }
                 let ch = &chars[i];
                 if let Some(s) = ch.unicode_string() {
                     selected_text.push_str(&s);
@@ -277,51 +318,86 @@ impl PdfViewer {
     }
 
     pub fn select_word_at(&mut self, pos: Pos2, page_idx: usize) {
-        let Some((px, py)) = self.screen_to_pdf_page(pos, page_idx) else { return; };
-        let Some(doc) = &self.document else { return; };
-        let Ok(page) = doc.pages().get(page_idx as u16) else { return; };
-        let Ok(text) = page.text() else { return; };
+        let Some((px, py)) = self.screen_to_pdf_page(pos, page_idx) else {
+            return;
+        };
+        let Some(doc) = &self.document else {
+            return;
+        };
+        let Ok(page) = doc.pages().get(page_idx as u16) else {
+            return;
+        };
+        let Ok(text) = page.text() else {
+            return;
+        };
 
         let text_chars = text.chars();
         let chars: Vec<_> = text_chars.iter().collect();
-        let Some(idx) = self.get_char_index_at(px, py, &chars) else { return; };
-
-        let is_boundary = |i: usize| -> bool {
-            chars[i].unicode_string().map(|s| s.trim().is_empty()).unwrap_or(true)
+        let Some(idx) = self.get_char_index_at(px, py, &chars) else {
+            return;
         };
 
-        if is_boundary(idx) { return; }
+        let is_boundary = |i: usize| -> bool {
+            chars[i]
+                .unicode_string()
+                .map(|s| s.trim().is_empty())
+                .unwrap_or(true)
+        };
+
+        if is_boundary(idx) {
+            return;
+        }
 
         let mut start = idx;
-        while start > 0 && !is_boundary(start - 1) { start -= 1; }
+        while start > 0 && !is_boundary(start - 1) {
+            start -= 1;
+        }
 
         let mut end = idx;
         let len = chars.len();
-        while end + 1 < len && !is_boundary(end + 1) { end += 1; }
+        while end + 1 < len && !is_boundary(end + 1) {
+            end += 1;
+        }
 
         let mut selected_text = String::new();
         self.selected_rects.clear();
 
         for i in start..=end {
             let ch = &chars[i];
-            if let Some(s) = ch.unicode_string() { selected_text.push_str(&s); }
-            if let Ok(b) = ch.loose_bounds() { self.selected_rects.push((page_idx, b)); }
+            if let Some(s) = ch.unicode_string() {
+                selected_text.push_str(&s);
+            }
+            if let Ok(b) = ch.loose_bounds() {
+                self.selected_rects.push((page_idx, b));
+            }
         }
         self.selected_text = selected_text;
     }
 
     pub fn select_line_at(&mut self, pos: Pos2, page_idx: usize) {
-        let Some((px, py)) = self.screen_to_pdf_page(pos, page_idx) else { return; };
-        let Some(doc) = &self.document else { return; };
-        let Ok(page) = doc.pages().get(page_idx as u16) else { return; };
-        let Ok(text) = page.text() else { return; };
+        let Some((px, py)) = self.screen_to_pdf_page(pos, page_idx) else {
+            return;
+        };
+        let Some(doc) = &self.document else {
+            return;
+        };
+        let Ok(page) = doc.pages().get(page_idx as u16) else {
+            return;
+        };
+        let Ok(text) = page.text() else {
+            return;
+        };
 
         let text_chars = text.chars();
         let chars: Vec<_> = text_chars.iter().collect();
-        let Some(idx) = self.get_char_index_at(px, py, &chars) else { return; };
+        let Some(idx) = self.get_char_index_at(px, py, &chars) else {
+            return;
+        };
 
         let clicked_ch = &chars[idx];
-        let Ok(bounds) = clicked_ch.loose_bounds() else { return; };
+        let Ok(bounds) = clicked_ch.loose_bounds() else {
+            return;
+        };
 
         let line_cy = (bounds.bottom().value + bounds.top().value) * 0.5;
         let thresh = (bounds.top().value - bounds.bottom().value).abs() * 0.7;
@@ -342,7 +418,10 @@ impl PdfViewer {
 
         // 2. Sort by X-coordinate to prevent jumbled multi-column text
         line_chars.sort_by(|(b1, _), (b2, _)| {
-            b1.left().value.partial_cmp(&b2.left().value).unwrap_or(std::cmp::Ordering::Equal)
+            b1.left()
+                .value
+                .partial_cmp(&b2.left().value)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         for (b, s) in line_chars {
@@ -355,16 +434,26 @@ impl PdfViewer {
     pub fn do_search(&mut self) {
         self.search_bounds.clear();
         self.search_match_count = 0;
-        if self.search_query.is_empty() { return; }
+        if self.search_query.is_empty() {
+            return;
+        }
 
-        let Some(doc) = &self.document else { return; };
+        let Some(doc) = &self.document else {
+            return;
+        };
 
         for page_idx in 0..self.total_pages {
-            let Ok(page) = doc.pages().get(page_idx as u16) else { continue; };
-            let Ok(text) = page.text() else { continue; };
+            let Ok(page) = doc.pages().get(page_idx as u16) else {
+                continue;
+            };
+            let Ok(text) = page.text() else {
+                continue;
+            };
 
             let options = PdfSearchOptions::new();
-            let Ok(search) = text.search(&self.search_query, &options) else { continue; };
+            let Ok(search) = text.search(&self.search_query, &options) else {
+                continue;
+            };
 
             for segments in search.iter(PdfSearchDirection::SearchForward) {
                 for seg in segments.iter() {

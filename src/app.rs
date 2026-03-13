@@ -6,17 +6,30 @@ use crate::viewer::PdfViewer;
 
 impl eframe::App for PdfViewer {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let (open, ctrl_f, ctrl_c, esc, enter) = ctx.input_mut(|i| (
-            i.consume_key(egui::Modifiers::CTRL, Key::O),
-            i.consume_key(egui::Modifiers::CTRL, Key::F),
-            i.consume_key(egui::Modifiers::CTRL, Key::C),
-            i.key_pressed(Key::Escape),
-            i.key_pressed(Key::Enter),
-        ));
-        if open { if let Some(p) = FileDialog::new().add_filter("PDF", &["pdf"]).pick_file() { self.load_pdf(&p); } }
-        if ctrl_f { self.show_search = !self.show_search; }
-        if ctrl_c { self.copy_selection(); }
-        if esc    { self.show_search = false; self.search_bounds.clear(); }
+        let (open, ctrl_f, ctrl_c, esc, enter) = ctx.input_mut(|i| {
+            (
+                i.consume_key(egui::Modifiers::CTRL, Key::O),
+                i.consume_key(egui::Modifiers::CTRL, Key::F),
+                i.consume_key(egui::Modifiers::CTRL, Key::C),
+                i.key_pressed(Key::Escape),
+                i.key_pressed(Key::Enter),
+            )
+        });
+        if open {
+            if let Some(p) = FileDialog::new().add_filter("PDF", &["pdf"]).pick_file() {
+                self.load_pdf(&p);
+            }
+        }
+        if ctrl_f {
+            self.show_search = !self.show_search;
+        }
+        if ctrl_c {
+            self.copy_selection();
+        }
+        if esc {
+            self.show_search = false;
+            self.search_bounds.clear();
+        }
 
         // ── Smooth scroll physics ─────────────────────────────────────────────
         let (raw_scroll, dt) = ctx.input(|i| (i.raw_scroll_delta.y, i.predicted_dt));
@@ -40,7 +53,9 @@ impl eframe::App for PdfViewer {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 if ui.button("📂 Open  Ctrl+O").clicked() {
-                    if let Some(p) = FileDialog::new().add_filter("PDF", &["pdf"]).pick_file() { self.load_pdf(&p); }
+                    if let Some(p) = FileDialog::new().add_filter("PDF", &["pdf"]).pick_file() {
+                        self.load_pdf(&p);
+                    }
                 }
                 ui.separator();
                 egui::ComboBox::from_id_salt("theme")
@@ -57,13 +72,25 @@ impl eframe::App for PdfViewer {
                 ui.separator();
                 ui.label(format!("{} pages", self.total_pages));
                 ui.separator();
-                if ui.button("−").clicked() { self.zoom = (self.zoom - 0.15).max(0.3); self.page_cache.clear(); self.page_cache_order.clear(); }
+                if ui.button("−").clicked() {
+                    self.zoom = (self.zoom - 0.15).max(0.3);
+                    self.page_cache.clear();
+                    self.page_cache_order.clear();
+                }
                 ui.label(format!("{:.0}%", self.zoom * 100.0));
-                if ui.button("+").clicked() { self.zoom = (self.zoom + 0.15).min(3.0); self.page_cache.clear(); self.page_cache_order.clear(); }
+                if ui.button("+").clicked() {
+                    self.zoom = (self.zoom + 0.15).min(3.0);
+                    self.page_cache.clear();
+                    self.page_cache_order.clear();
+                }
                 ui.separator();
-                if ui.button("🔍  Ctrl+F").clicked() { self.show_search = !self.show_search; }
+                if ui.button("🔍  Ctrl+F").clicked() {
+                    self.show_search = !self.show_search;
+                }
                 if !self.selected_text.is_empty() {
-                    if ui.button("📋 Copy  Ctrl+C").clicked() { self.copy_selection(); }
+                    if ui.button("📋 Copy  Ctrl+C").clicked() {
+                        self.copy_selection();
+                    }
                 }
             });
             ui.add_space(4.0);
@@ -77,7 +104,8 @@ impl eframe::App for PdfViewer {
                     ui.label("🔍");
                     let resp = ui.add_sized(
                         [280.0, 24.0],
-                        egui::TextEdit::singleline(&mut self.search_input).hint_text("Search all pages…"),
+                        egui::TextEdit::singleline(&mut self.search_input)
+                            .hint_text("Search all pages…"),
                     );
                     resp.request_focus();
                     if (resp.has_focus() && enter) || ui.button("Find").clicked() {
@@ -85,9 +113,18 @@ impl eframe::App for PdfViewer {
                         self.do_search();
                     }
                     if self.search_match_count > 0 {
-                        ui.colored_label(Color32::from_rgb(100, 220, 120),
-                            format!("{} match{}", self.search_match_count,
-                                if self.search_match_count == 1 { "" } else { "es" }));
+                        ui.colored_label(
+                            Color32::from_rgb(100, 220, 120),
+                            format!(
+                                "{} match{}",
+                                self.search_match_count,
+                                if self.search_match_count == 1 {
+                                    ""
+                                } else {
+                                    "es"
+                                }
+                            ),
+                        );
                     } else if !self.search_query.is_empty() {
                         ui.colored_label(Color32::from_rgb(255, 100, 100), "No matches");
                     }
@@ -106,9 +143,12 @@ impl eframe::App for PdfViewer {
             ui.add_space(3.0);
             ui.horizontal(|ui| {
                 if !self.selected_text.is_empty() {
-                    let preview = if self.selected_text.len() > 70 {
-                        format!("{}…", &self.selected_text[..70].replace('\n', " "))
-                    } else { self.selected_text.replace('\n', " ") };
+                let preview = if self.selected_text.chars().count() > 70 {
+                    let truncated: String = self.selected_text.chars().take(70).collect();
+                    format!("{}…", truncated.replace('\n', " "))
+                } else {
+                    self.selected_text.replace('\n', " ")
+                };
                     ui.colored_label(Color32::from_rgb(100, 200, 255), format!("\"{}\"", preview));
                     ui.weak("— Ctrl+C to copy");
                 } else {
@@ -121,12 +161,16 @@ impl eframe::App for PdfViewer {
         // ── Main scroll area ──────────────────────────────────────────────────
         egui::CentralPanel::default().show(ctx, |ui| {
             let bg = theme::theme_bg(self.theme_idx);
-            ui.painter().rect_filled(ui.available_rect_before_wrap(), 0.0, bg);
+            ui.painter()
+                .rect_filled(ui.available_rect_before_wrap(), 0.0, bg);
 
             if self.document.is_none() {
                 ui.centered_and_justified(|ui| {
-                    ui.label(egui::RichText::new("📄  Open a PDF to get started")
-                        .size(22.0).color(Color32::from_gray(140)));
+                    ui.label(
+                        egui::RichText::new("📄  Open a PDF to get started")
+                            .size(22.0)
+                            .color(Color32::from_gray(140)),
+                    );
                 });
                 return;
             }
@@ -147,7 +191,8 @@ impl eframe::App for PdfViewer {
                         ui.horizontal(|ui| {
                             ui.add_space(side_pad);
 
-                            let (page_rect, response) = ui.allocate_exact_size(size, Sense::click_and_drag());
+                            let (page_rect, response) =
+                                ui.allocate_exact_size(size, Sense::click_and_drag());
 
                             if self.page_screen_rects.len() > page_idx {
                                 self.page_screen_rects[page_idx] = page_rect;
@@ -162,28 +207,50 @@ impl eframe::App for PdfViewer {
                                     let tex_id = texture.id();
                                     let painter = ui.painter();
 
-                                    painter.image(tex_id, page_rect,
+                                    painter.image(
+                                        tex_id,
+                                        page_rect,
                                         Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
-                                        Color32::WHITE);
+                                        Color32::WHITE,
+                                    );
 
-                                    let search_rects: Vec<_> = self.search_bounds.iter()
+                                    let search_rects: Vec<_> = self
+                                        .search_bounds
+                                        .iter()
                                         .filter(|(pi, _)| *pi == page_idx)
                                         .map(|(_, r)| *r)
                                         .collect();
                                     for pr in &search_rects {
-                                        if let Some(sr) = self.pdf_rect_to_screen_page(pr, page_idx) {
-                                            painter.rect_filled(sr, 2.0, Color32::from_rgba_premultiplied(255, 215, 0, 100));
-                                            painter.rect_stroke(sr, 2.0, Stroke::new(1.5, Color32::from_rgb(255, 180, 0)), egui::StrokeKind::Outside);
+                                        if let Some(sr) = self.pdf_rect_to_screen_page(pr, page_idx)
+                                        {
+                                            painter.rect_filled(
+                                                sr,
+                                                2.0,
+                                                Color32::from_rgba_premultiplied(255, 215, 0, 100),
+                                            );
+                                            painter.rect_stroke(
+                                                sr,
+                                                2.0,
+                                                Stroke::new(1.5, Color32::from_rgb(255, 180, 0)),
+                                                egui::StrokeKind::Outside,
+                                            );
                                         }
                                     }
 
-                                    let sel_rects: Vec<_> = self.selected_rects.iter()
+                                    let sel_rects: Vec<_> = self
+                                        .selected_rects
+                                        .iter()
                                         .filter(|(pi, _)| *pi == page_idx)
                                         .map(|(_, r)| *r)
                                         .collect();
                                     for pr in &sel_rects {
-                                        if let Some(sr) = self.pdf_rect_to_screen_page(pr, page_idx) {
-                                            painter.rect_filled(sr, 0.0, Color32::from_rgba_premultiplied(80, 140, 255, 110));
+                                        if let Some(sr) = self.pdf_rect_to_screen_page(pr, page_idx)
+                                        {
+                                            painter.rect_filled(
+                                                sr,
+                                                0.0,
+                                                Color32::from_rgba_premultiplied(80, 140, 255, 110),
+                                            );
                                         }
                                     }
                                 }
@@ -205,8 +272,13 @@ impl eframe::App for PdfViewer {
 
                             if response.clicked() {
                                 let now = ctx.input(|i| i.time);
-                                let pos = ctx.input(|i| i.pointer.interact_pos()).unwrap_or(Pos2::ZERO);
-                                let same_spot = self.last_click_pos.map(|p| p.distance(pos) < 5.0).unwrap_or(false);
+                                let pos = ctx
+                                    .input(|i| i.pointer.interact_pos())
+                                    .unwrap_or(Pos2::ZERO);
+                                let same_spot = self
+                                    .last_click_pos
+                                    .map(|p| p.distance(pos) < 5.0)
+                                    .unwrap_or(false);
                                 let rapid = (now - self.last_click_time) < 0.4;
                                 let same_page = self.click_page == Some(page_idx);
                                 if same_spot && rapid && same_page {
@@ -239,10 +311,14 @@ impl eframe::App for PdfViewer {
 
                             if response.dragged() {
                                 if let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) {
-                                    let target_page = self.page_at_pos(pos).or_else(|| self.nearest_page_to_pos(pos));
+                                    let target_page = self
+                                        .page_at_pos(pos)
+                                        .or_else(|| self.nearest_page_to_pos(pos));
 
                                     if let Some(curr_page) = target_page {
-                                        if let Some((px, py)) = self.screen_to_pdf_page(pos, curr_page) {
+                                        if let Some((px, py)) =
+                                            self.screen_to_pdf_page(pos, curr_page)
+                                        {
                                             self.drag_end = Some((curr_page, Pos2::new(px, py)));
                                             self.update_selection();
                                             ctx.request_repaint();
@@ -274,7 +350,8 @@ impl eframe::App for PdfViewer {
 
                     // Mouse is near the bottom of the screen -> scroll down
                     if pos.y > viewport_rect.bottom() - scroll_zone {
-                        let intensity = (pos.y - (viewport_rect.bottom() - scroll_zone)) / scroll_zone;
+                        let intensity =
+                            (pos.y - (viewport_rect.bottom() - scroll_zone)) / scroll_zone;
                         self.scroll_offset += scroll_speed * intensity.clamp(0.0, 2.0) * dt;
                         auto_scrolled = true;
                     }
@@ -288,7 +365,9 @@ impl eframe::App for PdfViewer {
 
                     // If the page moved underneath the mouse, we must update the text selection!
                     if auto_scrolled {
-                        let target_page = self.page_at_pos(pos).or_else(|| self.nearest_page_to_pos(pos));
+                        let target_page = self
+                            .page_at_pos(pos)
+                            .or_else(|| self.nearest_page_to_pos(pos));
                         if let Some(curr_page) = target_page {
                             if let Some((px, py)) = self.screen_to_pdf_page(pos, curr_page) {
                                 self.drag_end = Some((curr_page, Pos2::new(px, py)));
