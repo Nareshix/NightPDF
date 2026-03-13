@@ -50,7 +50,7 @@ pub struct PdfViewer {
     pub last_save_time: f64,
 
     pub show_zoom_input: bool,
-pub zoom_input: String,
+    pub zoom_input: String,
 }
 
 impl PdfViewer {
@@ -88,8 +88,8 @@ impl PdfViewer {
 
             current_file_path: None,
             last_save_time: 0.0,
-show_zoom_input: false,
-zoom_input: String::new(),
+            show_zoom_input: false,
+            zoom_input: String::new(),
         }
     }
 
@@ -582,8 +582,7 @@ zoom_input: String::new(),
     }
 
     pub fn page_display_w(&self, _page_idx: usize, avail_w: f32) -> f32 {
-        let base = 900.0 * self.zoom;
-        base.max(100.0)
+        (avail_w * self.zoom).max(100.0)
     }
 
     pub fn page_display_size(&self, page_idx: usize, avail_w: f32) -> Vec2 {
