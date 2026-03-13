@@ -57,10 +57,9 @@ impl eframe::App for PdfViewer {
             self.jump_input.clear();
             self.jump_error = false;
         }
-        if do_copy
-            && !self.selected_text.is_empty() {
-                ctx.copy_text(self.selected_text.clone());
-            }
+        if do_copy && !self.selected_text.is_empty() {
+            ctx.copy_text(self.selected_text.clone());
+        }
         if ctrl_a {
             self.select_all();
         }
@@ -74,7 +73,6 @@ impl eframe::App for PdfViewer {
             self.jump_error = false;
         }
 
-        // ── Toolbar ───────────────────────────────────────────────────────────
         egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
@@ -179,10 +177,9 @@ impl eframe::App for PdfViewer {
                         self.search_current_match = 0;
                     }
                 }
-                if !self.selected_text.is_empty()
-                    && ui.button("📋 Copy  Ctrl+C").clicked() {
-                        ctx.copy_text(self.selected_text.clone());
-                    }
+                if !self.selected_text.is_empty() && ui.button("📋 Copy  Ctrl+C").clicked() {
+                    ctx.copy_text(self.selected_text.clone());
+                }
             });
             ui.add_space(4.0);
         });
@@ -218,15 +215,14 @@ impl eframe::App for PdfViewer {
                         self.do_search();
                     }
 
-                    if (resp.has_focus() || (resp.lost_focus() && enter_pressed))
-                        && enter_pressed {
-                            if shift_pressed {
-                                self.prev_search_match();
-                            } else {
-                                self.next_search_match();
-                            }
-                            resp.request_focus();
+                    if (resp.has_focus() || (resp.lost_focus() && enter_pressed)) && enter_pressed {
+                        if shift_pressed {
+                            self.prev_search_match();
+                        } else {
+                            self.next_search_match();
                         }
+                        resp.request_focus();
+                    }
 
                     if self.search_match_count > 0 {
                         if ui.button(" < ").on_hover_text("Previous match").clicked() {
@@ -285,7 +281,7 @@ impl eframe::App for PdfViewer {
             let scroll_output = egui::ScrollArea::vertical()
                 .auto_shrink([false; 2])
                 .vertical_scroll_offset(self.scroll_offset)
-                .wheel_scroll_multiplier(egui::Vec2::new(1.0, 7.0))
+                .wheel_scroll_multiplier(egui::Vec2::new(1.0, 10.0))
                 .show(ui, |ui| {
                     ui.add_space(12.0);
 
@@ -508,14 +504,14 @@ impl eframe::App for PdfViewer {
             self.scroll_offset = scroll_output.state.offset.y;
             self.current_page = best_page;
 
-            // ── Autosave bookmark every 2 seconds ────────────────────────────
+            // Autosave bookmark every 2 seconds
             let now = ctx.input(|i| i.time);
             if (now - self.last_save_time) > 2.0 {
                 self.save_bookmark();
                 self.last_save_time = now;
             }
 
-            // ── Auto-scroll when dragging near edges ──────────────────────────
+            // Auto-scroll when dragging near edges
             if self.drag_start.is_some() && ctx.input(|i| i.pointer.primary_down()) {
                 if let Some(pos) = ctx.input(|i| i.pointer.latest_pos()) {
                     let scroll_zone = 60.0;

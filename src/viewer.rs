@@ -7,7 +7,6 @@ use crate::theme::{self};
 use crate::types::PageInfo;
 
 // Keep the C++ PDFium engine alive globally so we don't reload it.
-// REQUIRES the "sync" feature on the pdfium-render crate!
 pub static PDFIUM: OnceLock<Pdfium> = OnceLock::new();
 
 pub struct PdfViewer {
@@ -127,7 +126,6 @@ impl PdfViewer {
     pub fn load_pdf(&mut self, path: &std::path::Path) {
         let pdfium = PDFIUM.get().unwrap();
 
-        // BUG FIX: Prevent panic if path contains invalid UTF-8 bytes
         let Some(path_str) = path.to_str() else {
             eprintln!("Invalid file path encoding.");
             return;
