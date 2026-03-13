@@ -174,6 +174,8 @@ impl PdfViewer {
         self.page_screen_rects = vec![Rect::ZERO; self.total_pages];
         self.scroll_offset = 0.0;
 
+        self.current_file_path = path.to_str().map(|s| s.to_string());
+
         // Restore last position for this file
         if let Some((scroll, zoom)) = self.load_bookmark() {
             self.scroll_offset = scroll;

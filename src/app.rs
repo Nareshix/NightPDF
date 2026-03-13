@@ -235,7 +235,17 @@ impl eframe::App for PdfViewer {
                 if !self.selected_text.is_empty() && ui.button("📋 Copy  Ctrl+C").clicked() {
                     ctx.copy_text(self.selected_text.clone());
                 }
+                if let Some(path) = self.current_file_path.clone() {
+                    let name = std::path::Path::new(&path)
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or(&path)
+                        .to_string();
+                    ui.separator();
+                    ui.label(&name).on_hover_text(&path);
+                }
             });
+
             ui.add_space(4.0);
         });
 
@@ -343,11 +353,12 @@ impl eframe::App for PdfViewer {
                         for page_idx in 0..self.total_pages {
                             let size = self.page_display_size(page_idx, avail_w);
 
-ui.horizontal(|ui| {
-    let side_pad = ((avail_w - size.x) / 2.0).max(0.0);
-    ui.add_space(side_pad);
-    let (page_rect, response) =
-        ui.allocate_exact_size(size, Sense::click_and_drag());                                if self.page_screen_rects.len() > page_idx {
+                            ui.horizontal(|ui| {
+                                let side_pad = ((avail_w - size.x) / 2.0).max(0.0);
+                                ui.add_space(side_pad);
+                                let (page_rect, response) =
+                                    ui.allocate_exact_size(size, Sense::click_and_drag());
+                                if self.page_screen_rects.len() > page_idx {
                                     self.page_screen_rects[page_idx] = page_rect;
                                 }
 
