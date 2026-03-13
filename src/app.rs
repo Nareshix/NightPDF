@@ -62,11 +62,11 @@ impl eframe::App for PdfViewer {
         let (raw_scroll, dt) = ctx.input(|i| (i.raw_scroll_delta.y, i.predicted_dt));
 
         if raw_scroll.abs() > 0.1 {
-            self.scroll_velocity += raw_scroll * 25.0;
+            self.scroll_velocity += raw_scroll * 1000.0;
             self.scroll_velocity = self.scroll_velocity.clamp(-8000.0, 8000.0);
         }
 
-        let friction = (-12.0_f32 * dt).exp();
+        let friction = (-25.0_f32 * dt).exp();
         self.scroll_velocity *= friction;
         self.scroll_offset -= self.scroll_velocity * dt;
         self.scroll_offset = self.scroll_offset.max(0.0);
@@ -164,8 +164,6 @@ impl eframe::App for PdfViewer {
                     }
 
                     // 3. Process Enter jumps ONLY if the Search box is active.
-                    // (Singleline TextEdits intentionally drop focus when Enter is pressed,
-                    // so we check if it currently has focus OR if it just lost it this exact frame).
                     if resp.has_focus() || (resp.lost_focus() && enter_pressed) {
                         if enter_pressed {
                             if shift_pressed {
@@ -179,7 +177,7 @@ impl eframe::App for PdfViewer {
                     }
 
                     if self.search_match_count > 0 {
-                        // Navigation Arrows (using safe standard characters)
+                        // Navigation Arrows
                         if ui.button(" < ").on_hover_text("Previous match").clicked() {
                             self.prev_search_match();
                         }
@@ -187,7 +185,7 @@ impl eframe::App for PdfViewer {
                             self.next_search_match();
                         }
 
-                        // Match Counter (e.g. 1 / 3)
+                        // Match Counter
                         ui.colored_label(
                             Color32::from_rgb(100, 220, 120),
                             format!("{} / {}", self.search_current_match + 1, self.search_match_count),
@@ -206,26 +204,6 @@ impl eframe::App for PdfViewer {
                 ui.add_space(4.0);
             });
         }
-
-        // ── Status bar ────────────────────────────────────────────────────────
-        egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
-            ui.add_space(3.0);
-            ui.horizontal(|ui| {
-                if !self.selected_text.is_empty() {
-                let preview = if self.selected_text.chars().count() > 70 {
-                    let truncated: String = self.selected_text.chars().take(70).collect();
-                    format!("{}…", truncated.replace('\n', " "))
-                } else {
-                    self.selected_text.replace('\n', " ")
-                };
-                    ui.colored_label(Color32::from_rgb(100, 200, 255), format!("\"{}\"", preview));
-                    ui.weak("— Ctrl+C to copy");
-                } else {
-                    ui.weak("Drag to select  •  Double-click: word  •  Triple-click: line  •  Ctrl+A: Select All  •  Ctrl+F: search all pages");
-                }
-            });
-            ui.add_space(3.0);
-        });
 
         // ── Main scroll area ──────────────────────────────────────────────────
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -248,25 +226,22 @@ impl eframe::App for PdfViewer {
             let viewport_rect = ui.clip_rect();
 
             // ── SCROLL TO MATCH LOGIC ─────────────────────────────────────────
-            // Calculates the exact pixel Y offset of the target search match
             if self.jump_to_match && self.search_match_count > 0 {
                 self.jump_to_match = false;
                 let (page_idx, rect) = self.search_bounds[self.search_current_match];
 
-                let mut y_offset = 12.0; // initial top space
+                let mut y_offset = 12.0;
                 for i in 0..page_idx {
-                    y_offset += self.page_display_size(i, avail_w).y + 8.0; // 8.0 is padding between pages
+                    y_offset += self.page_display_size(i, avail_w).y + 8.0;
                 }
 
                 if let Some(info) = self.page_infos.get(page_idx) {
                     let page_size = self.page_display_size(page_idx, avail_w);
                     let top_pt = rect.top().value;
-                    // Compute absolute distance from top of document
                     let rel_y = ((info.height_pts - top_pt) / info.height_pts) * page_size.y;
 
-                    // Automatically Scroll - minus 100 padding so the text isn't glued to the top of screen
                     self.scroll_offset = (y_offset + rel_y - 100.0).max(0.0);
-                    self.scroll_velocity = 0.0; // Stop any existing physics scroll velocity
+                    self.scroll_velocity = 0.0;
                 }
             }
 
@@ -310,7 +285,6 @@ impl eframe::App for PdfViewer {
                                     let mut search_rects = Vec::new();
                                     let mut active_rect = None;
 
-                                    // Filter out regular vs active search hits
                                     for (i, &(pi, pr)) in self.search_bounds.iter().enumerate() {
                                         if pi == page_idx {
                                             if i == self.search_current_match {
@@ -321,7 +295,6 @@ impl eframe::App for PdfViewer {
                                         }
                                     }
 
-                                    // Render general background matches (Cyan)
                                     for pr in search_rects {
                                         if let Some(sr) = self.pdf_rect_to_screen_page(&pr, page_idx) {
                                             painter.rect_filled(
@@ -338,7 +311,6 @@ impl eframe::App for PdfViewer {
                                         }
                                     }
 
-                                    // Render the ACTIVE current match on top (Bright Orange)
                                     if let Some(pr) = active_rect {
                                         if let Some(sr) = self.pdf_rect_to_screen_page(&pr, page_idx) {
                                             painter.rect_filled(
@@ -355,7 +327,7 @@ impl eframe::App for PdfViewer {
                                         }
                                     }
 
-                                    // Render Text Selection Highlights (Connected & Merged)
+                                    // Render Text Selection Highlights
                                     let sel_rects: Vec<_> = self
                                         .selected_rects
                                         .iter()
@@ -363,7 +335,6 @@ impl eframe::App for PdfViewer {
                                         .map(|(_, r)| *r)
                                         .collect();
 
-                                    // Convert to screen coordinates
                                     let mut screen_rects = Vec::new();
                                     for pr in &sel_rects {
                                         if let Some(sr) = self.pdf_rect_to_screen_page(pr, page_idx) {
@@ -371,19 +342,16 @@ impl eframe::App for PdfViewer {
                                         }
                                     }
 
-                                    // Merge adjacent characters/words on the same line into solid blocks
                                     let mut merged_rects: Vec<Rect> = Vec::new();
                                     for sr in screen_rects {
                                         if let Some(last) = merged_rects.last_mut() {
                                             let center_y_diff = (sr.center().y - last.center().y).abs();
                                             let height = sr.height().min(last.height());
 
-                                            // If they are on the same line (centers are close)
                                             if center_y_diff < height * 0.5 {
                                                 let gap = sr.min.x - last.max.x;
-                                                // If they are close horizontally (bridges the gap of a spacebar)
                                                 if gap < height * 2.0 && gap > -height {
-                                                    *last = last.union(sr); // Merge them into one big rectangle!
+                                                    *last = last.union(sr);
                                                     continue;
                                                 }
                                             }
@@ -391,11 +359,10 @@ impl eframe::App for PdfViewer {
                                         merged_rects.push(sr);
                                     }
 
-                                    // Draw the merged continuous blocks
                                     for sr in merged_rects {
                                         painter.rect_filled(
                                             sr,
-                                            2.0, // Added a slight 2.0 pixel curve to the edges
+                                            2.0,
                                             Color32::from_rgba_premultiplied(80, 140, 255, 110),
                                         );
                                     }
@@ -450,7 +417,7 @@ impl eframe::App for PdfViewer {
                                 if let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) {
                                     if let Some((px, py)) = self.screen_to_pdf_page(pos, page_idx) {
                                         self.drag_start = Some((page_idx, Pos2::new(px, py)));
-                                        self.drag_end = self.drag_start; // init to prevent null
+                                        self.drag_end = self.drag_start;
                                     }
                                 }
                             }
@@ -480,7 +447,6 @@ impl eframe::App for PdfViewer {
                     ui.add_space(12.0);
                 });
 
-            // Sync the scroll offset with the UI
             self.scroll_offset = scroll_output.state.offset.y;
 
             // ── AUTO-SCROLL WHEN DRAGGING ─────────────────────────────────────────
