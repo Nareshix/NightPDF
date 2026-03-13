@@ -465,35 +465,24 @@ impl eframe::App for PdfViewer {
                             }
 
                             if response.clicked() {
-                                let now = ctx.input(|i| i.time);
+                                self.clear_selection();
+                                ctx.request_repaint();
+                            }
+                            if response.double_clicked() {
                                 let pos = ctx
                                     .input(|i| i.pointer.interact_pos())
                                     .unwrap_or(Pos2::ZERO);
-                                let same_spot = self
-                                    .last_click_pos
-                                    .map(|p| p.distance(pos) < 5.0)
-                                    .unwrap_or(false);
-                                let rapid = (now - self.last_click_time) < 0.4;
-                                let same_page = self.click_page == Some(page_idx);
-                                if same_spot && rapid && same_page {
-                                    self.click_count = (self.click_count + 1).min(3);
-                                } else {
-                                    self.click_count = 1;
-                                    self.clear_selection();
-                                }
-                                self.last_click_pos = Some(pos);
-                                self.last_click_time = now;
-                                self.click_page = Some(page_idx);
-                                match self.click_count {
-                                    2 => self.select_word_at(pos, page_idx),
-                                    3 => self.select_line_at(pos, page_idx),
-                                    _ => {}
-                                }
+                                self.select_word_at(pos, page_idx);
                                 ctx.request_repaint();
                             }
-
+                            if response.triple_clicked() {
+                                let pos = ctx
+                                    .input(|i| i.pointer.interact_pos())
+                                    .unwrap_or(Pos2::ZERO);
+                                self.select_line_at(pos, page_idx);
+                                ctx.request_repaint();
+                            }
                             if response.drag_started() {
-                                self.click_count = 0;
                                 self.clear_selection();
                                 if let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) {
                                     if let Some((px, py)) = self.screen_to_pdf_page(pos, page_idx) {

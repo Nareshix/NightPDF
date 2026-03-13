@@ -28,10 +28,6 @@ pub struct PdfViewer {
     pub selected_text: String,
     pub selected_rects: Vec<(usize, PdfRect)>,
 
-    pub last_click_pos: Option<Pos2>,
-    pub last_click_time: f64,
-    pub click_count: u8,
-    pub click_page: Option<usize>,
 
     pub show_search: bool,
     pub search_input: String,
@@ -73,10 +69,6 @@ impl PdfViewer {
             drag_end: None,
             selected_text: String::new(),
             selected_rects: Vec::new(),
-            last_click_pos: None,
-            last_click_time: 0.0,
-            click_count: 0,
-            click_page: None,
             show_search: false,
             search_input: String::new(),
             search_query: String::new(),
