@@ -1,10 +1,10 @@
 wip
 pdf-viewer features
-- [] select texts
-- [] search (ctrl-f)
-- [] open pdf file (ctrl-o)
-- [] ctrl a to select all texts
-- [] ctrl c to copy selected texts
+- [x] select texts
+- [x] search (ctrl-f)
+- [x] open pdf file (ctrl-o)
+- [x] ctrl a to select all texts
+- [x] ctrl c to copy selected texts
 - [] ctrl s to save pdf file
 - [] ctrl p to print pdf file
 - [] highlight texts
@@ -13,17 +13,16 @@ pdf-viewer features
 - [] add texts to pdf file (text box)
 - [] draw on pdf file
 - [] smooth scroll
-- [] support for dark mode
+- [x] support for dark mode (machhiato?)
 - [] pgdown and pgup to scroll pages
-- [] zoom
 - [] rotate pages
-- [] goto page number
+- [x] goto page number (ctrl g)
 - [] signature
 - [] jump to links in pdf
 - [] zoom (pinch or ctrl +/-)
 - [] hover links to show tooltip?
 - [] direct editing of pdf files?
-- [] save last seen page and open pdf file at that page
+- [x] save last seen page and open pdf file at that page
 - [] support for opening multiple pdf files in tabs?
 - [] have option to not invert images in dark mode (or specific images and remembers them.)
 - [] wasm
