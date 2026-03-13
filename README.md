@@ -25,4 +25,5 @@ pdf-viewer features
 - [] direct editing of pdf files?
 - [] save last seen page and open pdf file at that page
 - [] support for opening multiple pdf files in tabs?
-- 
+- [] have option to not invert images in dark mode (or specific images and remembers them.)
+- [] wasm
