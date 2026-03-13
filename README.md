@@ -7,7 +7,7 @@ pdf-viewer features
 - [x] ctrl c to copy selected texts
 - [] ctrl s to save pdf file
 - [] ctrl p to print pdf file
-- [] highlight texts
+- [] highlighting texts (not select)
 - [] add images to pdf file
 - [] add comments to pdf file
 - [] add texts to pdf file (text box)
