@@ -14,14 +14,19 @@ impl eframe::App for PdfViewer {
                 do_copy = true;
             }
             // Fallback: check raw keystrokes just in case
-            if i.consume_key(egui::Modifiers::COMMAND, Key::C) || i.consume_key(egui::Modifiers::CTRL, Key::C) {
+            if i.consume_key(egui::Modifiers::COMMAND, Key::C)
+                || i.consume_key(egui::Modifiers::CTRL, Key::C)
+            {
                 do_copy = true;
             }
 
             (
-                i.consume_key(egui::Modifiers::COMMAND, Key::O) || i.consume_key(egui::Modifiers::CTRL, Key::O),
-                i.consume_key(egui::Modifiers::COMMAND, Key::F) || i.consume_key(egui::Modifiers::CTRL, Key::F),
-                i.consume_key(egui::Modifiers::COMMAND, Key::A) || i.consume_key(egui::Modifiers::CTRL, Key::A),
+                i.consume_key(egui::Modifiers::COMMAND, Key::O)
+                    || i.consume_key(egui::Modifiers::CTRL, Key::O),
+                i.consume_key(egui::Modifiers::COMMAND, Key::F)
+                    || i.consume_key(egui::Modifiers::CTRL, Key::F),
+                i.consume_key(egui::Modifiers::COMMAND, Key::A)
+                    || i.consume_key(egui::Modifiers::CTRL, Key::A),
                 i.key_pressed(Key::Escape),
                 i.key_pressed(Key::Enter),
             )
@@ -262,21 +267,51 @@ impl eframe::App for PdfViewer {
                                         }
                                     }
 
+                                    // REPLACE WITH THIS:
                                     let sel_rects: Vec<_> = self
                                         .selected_rects
                                         .iter()
                                         .filter(|(pi, _)| *pi == page_idx)
                                         .map(|(_, r)| *r)
                                         .collect();
+
+                                    // 1. Convert to screen coordinates
+                                    let mut screen_rects = Vec::new();
                                     for pr in &sel_rects {
                                         if let Some(sr) = self.pdf_rect_to_screen_page(pr, page_idx)
                                         {
-                                            painter.rect_filled(
-                                                sr,
-                                                0.0,
-                                                Color32::from_rgba_premultiplied(80, 140, 255, 110),
-                                            );
+                                            screen_rects.push(sr);
                                         }
+                                    }
+
+                                    // 2. Merge adjacent characters/words on the same line into solid blocks
+                                    let mut merged_rects: Vec<Rect> = Vec::new();
+                                    for sr in screen_rects {
+                                        if let Some(last) = merged_rects.last_mut() {
+                                            let center_y_diff =
+                                                (sr.center().y - last.center().y).abs();
+                                            let height = sr.height().min(last.height());
+
+                                            // If they are on the same line (centers are close)
+                                            if center_y_diff < height * 0.5 {
+                                                let gap = sr.min.x - last.max.x;
+                                                // If they are close horizontally (bridges the gap of a spacebar)
+                                                if gap < height * 2.0 && gap > -height {
+                                                    *last = last.union(sr); // Merge them into one big rectangle!
+                                                    continue;
+                                                }
+                                            }
+                                        }
+                                        merged_rects.push(sr);
+                                    }
+
+                                    // 3. Draw the merged continuous blocks
+                                    for sr in merged_rects {
+                                        painter.rect_filled(
+                                            sr,
+                                            2.0, // Added a slight 2.0 pixel curve to the edges for a premium look
+                                            Color32::from_rgba_premultiplied(80, 140, 255, 110),
+                                        );
                                     }
                                 }
                             } else {
@@ -375,8 +410,7 @@ impl eframe::App for PdfViewer {
                             (pos.y - (viewport_rect.bottom() - scroll_zone)) / scroll_zone;
                         self.scroll_offset += scroll_speed * intensity.clamp(0.0, 2.0) * dt;
                         auto_scrolled = true;
-                    }
-                    else if pos.y < viewport_rect.top() + scroll_zone {
+                    } else if pos.y < viewport_rect.top() + scroll_zone {
                         let intensity = ((viewport_rect.top() + scroll_zone) - pos.y) / scroll_zone;
                         self.scroll_offset -= scroll_speed * intensity.clamp(0.0, 2.0) * dt;
                         self.scroll_offset = self.scroll_offset.max(0.0);
