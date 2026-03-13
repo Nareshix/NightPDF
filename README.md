@@ -23,3 +23,6 @@ pdf-viewer features
 - [] zoom (pinch or ctrl +/-)
 - [] hover links to show tooltip?
 - [] direct editing of pdf files?
+- [] save last seen page and open pdf file at that page
+- [] support for opening multiple pdf files in tabs?
+- 
