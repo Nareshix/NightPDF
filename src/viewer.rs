@@ -13,6 +13,7 @@ pub static PDFIUM: OnceLock<Pdfium> = OnceLock::new();
 pub struct PdfViewer {
     pub document: Option<PdfDocument<'static>>,
     pub total_pages: usize,
+    pub current_page: usize,
     pub page_infos: Vec<PageInfo>,
 
     pub page_cache: HashMap<usize, TextureHandle>,
@@ -40,6 +41,12 @@ pub struct PdfViewer {
     pub search_current_match: usize,
     pub jump_to_match: bool,
 
+    // Jump to page feature
+    pub show_jump: bool,
+    pub jump_input: String,
+    pub jump_error: bool,
+    pub target_scroll_page: Option<usize>,
+
     pub page_screen_rects: Vec<Rect>,
 
     pub scroll_offset: f32,
@@ -53,6 +60,7 @@ impl PdfViewer {
         Self {
             document: None,
             total_pages: 0,
+            current_page: 0,
             page_infos: Vec::new(),
             page_cache: HashMap::new(),
             page_cache_order: VecDeque::new(),
@@ -73,6 +81,12 @@ impl PdfViewer {
             search_match_count: 0,
             search_current_match: 0,
             jump_to_match: false,
+
+            show_jump: false,
+            jump_input: String::new(),
+            jump_error: false,
+            target_scroll_page: None,
+
             page_screen_rects: Vec::new(),
             scroll_offset: 0.0,
             scroll_velocity: 0.0,
@@ -103,6 +117,7 @@ impl PdfViewer {
             .collect();
 
         self.total_pages = total_pages;
+        self.current_page = 0;
         self.page_infos = infos;
         self.document = Some(doc);
 
@@ -114,6 +129,11 @@ impl PdfViewer {
         self.search_match_count = 0;
         self.search_current_match = 0;
         self.jump_to_match = false;
+
+        self.show_jump = false;
+        self.jump_input.clear();
+        self.jump_error = false;
+        self.target_scroll_page = None;
 
         self.page_screen_rects = vec![Rect::ZERO; self.total_pages];
         self.scroll_offset = 0.0;

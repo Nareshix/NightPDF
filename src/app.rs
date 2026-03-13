@@ -10,7 +10,7 @@ impl eframe::App for PdfViewer {
         let wants_keyboard = ctx.wants_keyboard_input();
         let mut do_copy = false;
 
-        let (open, ctrl_f, ctrl_a, esc) = ctx.input_mut(|i| {
+        let (open, ctrl_f, ctrl_a, esc, ctrl_g) = ctx.input_mut(|i| {
             // Only steal the copy event if the search box IS NOT focused
             if !wants_keyboard {
                 if i.events.iter().any(|e| matches!(e, egui::Event::Copy)) {
@@ -27,6 +27,7 @@ impl eframe::App for PdfViewer {
                 // Only steal Ctrl+A if the search box IS NOT focused!
                 !wants_keyboard && (i.consume_key(egui::Modifiers::COMMAND, Key::A) || i.consume_key(egui::Modifiers::CTRL, Key::A)),
                 i.key_pressed(Key::Escape),
+                i.consume_key(egui::Modifiers::COMMAND, Key::G) || i.consume_key(egui::Modifiers::CTRL, Key::G),
             )
         });
 
@@ -43,6 +44,11 @@ impl eframe::App for PdfViewer {
                 self.search_current_match = 0;
             }
         }
+        if ctrl_g && self.total_pages > 0 {
+            self.show_jump = true;
+            self.jump_input.clear();
+            self.jump_error = false;
+        }
         if do_copy {
             if !self.selected_text.is_empty() {
                 ctx.copy_text(self.selected_text.clone());
@@ -56,6 +62,9 @@ impl eframe::App for PdfViewer {
             self.search_bounds.clear();
             self.search_match_count = 0;
             self.search_current_match = 0;
+
+            self.show_jump = false;
+            self.jump_error = false;
         }
 
         // ── Smooth scroll physics ─────────────────────────────────────────────
@@ -97,7 +106,65 @@ impl eframe::App for PdfViewer {
                         }
                     });
                 ui.separator();
-                ui.label(format!("{} pages", self.total_pages));
+
+                // ── Jump to Page Logic ──
+                if self.total_pages > 0 {
+                    if self.show_jump {
+                        let mut enter_pressed = false;
+                        ui.input(|i| {
+                            if i.key_pressed(Key::Enter) {
+                                enter_pressed = true;
+                            }
+                        });
+
+                        let resp = ui.add(
+                            egui::TextEdit::singleline(&mut self.jump_input)
+                                .desired_width(40.0)
+                                .hint_text("#")
+                        );
+
+                        if ctrl_g {
+                            resp.request_focus();
+                        }
+
+                        ui.label(format!("/ {}", self.total_pages));
+
+                        if (resp.has_focus() || resp.lost_focus()) && enter_pressed {
+                            if let Ok(p) = self.jump_input.trim().parse::<usize>() {
+                                if p > 0 && p <= self.total_pages {
+                                    self.target_scroll_page = Some(p - 1);
+                                    self.show_jump = false;
+                                    self.jump_error = false;
+                                } else {
+                                    self.jump_error = true;
+                                }
+                            } else {
+                                self.jump_error = true;
+                            }
+                        }
+
+                        if self.jump_error {
+                            ui.colored_label(Color32::from_rgb(255, 100, 100), "Invalid page");
+                        }
+
+                        if ui.button("❌").clicked() {
+                            self.show_jump = false;
+                            self.jump_error = false;
+                        }
+                    } else {
+                        if ui.button(format!("📄 {} / {}", self.current_page + 1, self.total_pages))
+                            .on_hover_text("Jump to page (Ctrl+G)")
+                            .clicked()
+                        {
+                            self.show_jump = true;
+                            self.jump_input.clear();
+                            self.jump_error = false;
+                        }
+                    }
+                } else {
+                    ui.label("📄 0 pages");
+                }
+
                 ui.separator();
                 if ui.button("−").clicked() {
                     self.zoom = (self.zoom - 0.15).max(0.3);
@@ -224,6 +291,17 @@ impl eframe::App for PdfViewer {
 
             let avail_w = ui.available_width();
             let viewport_rect = ui.clip_rect();
+            let viewport_center_y = viewport_rect.center().y;
+
+            // ── SCROLL TO PAGE LOGIC ──────────────────────────────────────────
+            if let Some(target_page) = self.target_scroll_page.take() {
+                let mut y_offset = 12.0; // Account for initial top padding
+                for i in 0..target_page {
+                    y_offset += self.page_display_size(i, avail_w).y + 8.0; // Cumulative pages + spacing
+                }
+                self.scroll_offset = y_offset;
+                self.scroll_velocity = 0.0;
+            }
 
             // ── SCROLL TO MATCH LOGIC ─────────────────────────────────────────
             if self.jump_to_match && self.search_match_count > 0 {
@@ -244,6 +322,9 @@ impl eframe::App for PdfViewer {
                     self.scroll_velocity = 0.0;
                 }
             }
+
+            let mut best_page = self.current_page;
+            let mut best_dist = f32::MAX;
 
             let scroll_output = egui::ScrollArea::vertical()
                 .auto_shrink([false; 2])
@@ -268,6 +349,13 @@ impl eframe::App for PdfViewer {
                             let is_visible = viewport_rect.intersects(page_rect);
 
                             if is_visible {
+                                // Track which page is currently most central on screen
+                                let dist = (page_rect.center().y - viewport_center_y).abs();
+                                if dist < best_dist {
+                                    best_dist = dist;
+                                    best_page = page_idx;
+                                }
+
                                 self.ensure_page_rendered(page_idx, ctx);
 
                                 if let Some(texture) = self.page_cache.get(&page_idx) {
@@ -448,6 +536,7 @@ impl eframe::App for PdfViewer {
                 });
 
             self.scroll_offset = scroll_output.state.offset.y;
+            self.current_page = best_page; // Update active page based on closest to center
 
             // ── AUTO-SCROLL WHEN DRAGGING ─────────────────────────────────────────
             if self.drag_start.is_some() && ctx.input(|i| i.pointer.primary_down()) {
