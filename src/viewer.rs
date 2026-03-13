@@ -1,4 +1,3 @@
-use arboard::Clipboard;
 use eframe::egui::{self, ColorImage, Pos2, Rect, TextureHandle, TextureOptions, Vec2};
 use pdfium_render::prelude::*;
 use std::collections::{HashMap, VecDeque};
@@ -44,8 +43,6 @@ pub struct PdfViewer {
 
     pub page_screen_rects: Vec<Rect>,
 
-    pub clipboard: Option<Clipboard>,
-
     pub scroll_offset: f32,
     pub scroll_velocity: f32,
 }
@@ -76,7 +73,6 @@ impl PdfViewer {
             search_bounds: Vec::new(),
             search_match_count: 0,
             page_screen_rects: Vec::new(),
-            clipboard: Clipboard::new().ok(),
             scroll_offset: 0.0,
             scroll_velocity: 0.0,
         }
@@ -271,7 +267,6 @@ impl PdfViewer {
 
             // Determine start and end index for THIS specific page
             let (p_start, p_end) = if top_page == bottom_page {
-                // Dragging entirely within a single page
                 let i1 = self
                     .get_char_index_at(top_pos.x, top_pos.y, &chars)
                     .unwrap_or(0);
@@ -280,19 +275,16 @@ impl PdfViewer {
                     .unwrap_or(chars.len().saturating_sub(1));
                 (i1.min(i2), i1.max(i2))
             } else if page_idx == top_page {
-                // Drag started here, ends on a later page. Select to the very bottom of this page.
                 let i = self
                     .get_char_index_at(top_pos.x, top_pos.y, &chars)
                     .unwrap_or(0);
                 (i, chars.len().saturating_sub(1))
             } else if page_idx == bottom_page {
-                // Drag ended here, started on an earlier page. Select from the very top of this page.
                 let i = self
                     .get_char_index_at(bottom_pos.x, bottom_pos.y, &chars)
                     .unwrap_or(chars.len().saturating_sub(1));
                 (0, i)
             } else {
-                // An intermediate page, select EVERYTHING on it.
                 (0, chars.len().saturating_sub(1))
             };
 
@@ -311,6 +303,40 @@ impl PdfViewer {
 
             // Insert a newline between pages
             if page_idx < bottom_page {
+                selected_text.push('\n');
+            }
+        }
+        self.selected_text = selected_text;
+    }
+
+    pub fn select_all(&mut self) {
+        if self.document.is_none() {
+            return;
+        }
+
+        // Mutate self before we borrow self.document
+        self.clear_selection();
+        let mut selected_text = String::new();
+
+        // Now safely borrow document
+        let doc = self.document.as_ref().unwrap();
+
+        for page_idx in 0..self.total_pages {
+            let Ok(page) = doc.pages().get(page_idx as u16) else { continue };
+            let Ok(text) = page.text() else { continue };
+
+            let text_chars = text.chars(); // Keep temporary alive
+            let chars: Vec<_> = text_chars.iter().collect();
+
+            for ch in &chars {
+                if let Some(s) = ch.unicode_string() {
+                    selected_text.push_str(&s);
+                }
+                if let Ok(b) = ch.loose_bounds() {
+                    self.selected_rects.push((page_idx, b));
+                }
+            }
+            if page_idx < self.total_pages.saturating_sub(1) {
                 selected_text.push('\n');
             }
         }
@@ -469,14 +495,6 @@ impl PdfViewer {
         self.drag_end = None;
         self.selected_text.clear();
         self.selected_rects.clear();
-    }
-
-    pub fn copy_selection(&mut self) {
-        if !self.selected_text.is_empty() {
-            if let Some(cb) = &mut self.clipboard {
-                let _ = cb.set_text(self.selected_text.clone());
-            }
-        }
     }
 
     pub fn page_display_w(&self, _page_idx: usize, avail_w: f32) -> f32 {

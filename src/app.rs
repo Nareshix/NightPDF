@@ -6,15 +6,27 @@ use crate::viewer::PdfViewer;
 
 impl eframe::App for PdfViewer {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let (open, ctrl_f, ctrl_c, esc, enter) = ctx.input_mut(|i| {
+        let mut do_copy = false;
+
+        let (open, ctrl_f, ctrl_a, esc, enter) = ctx.input_mut(|i| {
+            // Check for the native OS copy event (egui intercepts Ctrl+C / Cmd+C and creates this)
+            if i.events.iter().any(|e| matches!(e, egui::Event::Copy)) {
+                do_copy = true;
+            }
+            // Fallback: check raw keystrokes just in case
+            if i.consume_key(egui::Modifiers::COMMAND, Key::C) || i.consume_key(egui::Modifiers::CTRL, Key::C) {
+                do_copy = true;
+            }
+
             (
-                i.consume_key(egui::Modifiers::CTRL, Key::O),
-                i.consume_key(egui::Modifiers::CTRL, Key::F),
-                i.consume_key(egui::Modifiers::CTRL, Key::C),
+                i.consume_key(egui::Modifiers::COMMAND, Key::O) || i.consume_key(egui::Modifiers::CTRL, Key::O),
+                i.consume_key(egui::Modifiers::COMMAND, Key::F) || i.consume_key(egui::Modifiers::CTRL, Key::F),
+                i.consume_key(egui::Modifiers::COMMAND, Key::A) || i.consume_key(egui::Modifiers::CTRL, Key::A),
                 i.key_pressed(Key::Escape),
                 i.key_pressed(Key::Enter),
             )
         });
+
         if open {
             if let Some(p) = FileDialog::new().add_filter("PDF", &["pdf"]).pick_file() {
                 self.load_pdf(&p);
@@ -23,8 +35,13 @@ impl eframe::App for PdfViewer {
         if ctrl_f {
             self.show_search = !self.show_search;
         }
-        if ctrl_c {
-            self.copy_selection();
+        if do_copy {
+            if !self.selected_text.is_empty() {
+                ctx.copy_text(self.selected_text.clone());
+            }
+        }
+        if ctrl_a {
+            self.select_all();
         }
         if esc {
             self.show_search = false;
@@ -89,7 +106,7 @@ impl eframe::App for PdfViewer {
                 }
                 if !self.selected_text.is_empty() {
                     if ui.button("📋 Copy  Ctrl+C").clicked() {
-                        self.copy_selection();
+                        ctx.copy_text(self.selected_text.clone());
                     }
                 }
             });
@@ -108,10 +125,18 @@ impl eframe::App for PdfViewer {
                             .hint_text("Search all pages…"),
                     );
                     resp.request_focus();
+
+                    // Live search as you type
+                    if resp.changed() {
+                        self.search_query = self.search_input.clone();
+                        self.do_search();
+                    }
+
                     if (resp.has_focus() && enter) || ui.button("Find").clicked() {
                         self.search_query = self.search_input.clone();
                         self.do_search();
                     }
+
                     if self.search_match_count > 0 {
                         ui.colored_label(
                             Color32::from_rgb(100, 220, 120),
@@ -152,7 +177,7 @@ impl eframe::App for PdfViewer {
                     ui.colored_label(Color32::from_rgb(100, 200, 255), format!("\"{}\"", preview));
                     ui.weak("— Ctrl+C to copy");
                 } else {
-                    ui.weak("Drag to select  •  Double-click: word  •  Triple-click: line  •  Ctrl+F: search all pages");
+                    ui.weak("Drag to select  •  Double-click: word  •  Triple-click: line  •  Ctrl+A: Select All  •  Ctrl+F: search all pages");
                 }
             });
             ui.add_space(3.0);
@@ -226,12 +251,12 @@ impl eframe::App for PdfViewer {
                                             painter.rect_filled(
                                                 sr,
                                                 2.0,
-                                                Color32::from_rgba_premultiplied(255, 215, 0, 100),
+                                                Color32::from_rgba_premultiplied(0, 150, 255, 80), // High-visibility Cyan
                                             );
                                             painter.rect_stroke(
                                                 sr,
                                                 2.0,
-                                                Stroke::new(1.5, Color32::from_rgb(255, 180, 0)),
+                                                Stroke::new(1.5, Color32::from_rgb(0, 150, 255)),
                                                 egui::StrokeKind::Outside,
                                             );
                                         }
@@ -338,24 +363,19 @@ impl eframe::App for PdfViewer {
             self.scroll_offset = scroll_output.state.offset.y;
 
             // ── AUTO-SCROLL WHEN DRAGGING ─────────────────────────────────────────
-            // If the user is currently holding the mouse down to select text...
             if self.drag_start.is_some() && ctx.input(|i| i.pointer.primary_down()) {
-                // We use latest_pos() so we still know where the mouse is even if it
-                // leaves the OS window boundaries.
                 if let Some(pos) = ctx.input(|i| i.pointer.latest_pos()) {
                     let scroll_zone = 60.0;
                     let scroll_speed = 1200.0;
                     let dt = ctx.input(|i| i.predicted_dt);
                     let mut auto_scrolled = false;
 
-                    // Mouse is near the bottom of the screen -> scroll down
                     if pos.y > viewport_rect.bottom() - scroll_zone {
                         let intensity =
                             (pos.y - (viewport_rect.bottom() - scroll_zone)) / scroll_zone;
                         self.scroll_offset += scroll_speed * intensity.clamp(0.0, 2.0) * dt;
                         auto_scrolled = true;
                     }
-                    // Mouse is near the top of the screen -> scroll up
                     else if pos.y < viewport_rect.top() + scroll_zone {
                         let intensity = ((viewport_rect.top() + scroll_zone) - pos.y) / scroll_zone;
                         self.scroll_offset -= scroll_speed * intensity.clamp(0.0, 2.0) * dt;
@@ -363,7 +383,6 @@ impl eframe::App for PdfViewer {
                         auto_scrolled = true;
                     }
 
-                    // If the page moved underneath the mouse, we must update the text selection!
                     if auto_scrolled {
                         let target_page = self
                             .page_at_pos(pos)
@@ -374,7 +393,6 @@ impl eframe::App for PdfViewer {
                                 self.update_selection();
                             }
                         }
-                        // Request repaint to keep the auto-scroll animation looping
                         ctx.request_repaint();
                     }
                 }
