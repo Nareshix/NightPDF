@@ -278,7 +278,7 @@ impl eframe::App for PdfViewer {
             let mut best_page = self.current_page;
             let mut best_dist = f32::MAX;
 
-            let scroll_output = egui::ScrollArea::vertical()
+            let scroll_output = egui::ScrollArea::both()
                 .auto_shrink([false; 2])
                 .vertical_scroll_offset(self.scroll_offset)
                 .wheel_scroll_multiplier(egui::Vec2::new(1.0, 10.0))
@@ -328,8 +328,7 @@ impl eframe::App for PdfViewer {
                                     best_page = page_idx;
                                 }
 
-                                self.ensure_page_rendered(page_idx, ctx);
-
+                                self.ensure_page_rendered(page_idx, ctx, size.x);
                                 if let Some(texture) = self.page_cache.get(&page_idx) {
                                     let tex_id = texture.id();
                                     let painter = ui.painter();

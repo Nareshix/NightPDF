@@ -27,7 +27,6 @@ pub struct PdfViewer {
     pub selected_text: String,
     pub selected_rects: Vec<(usize, PdfRect)>,
 
-
     pub show_search: bool,
     pub search_input: String,
     pub search_query: String,
@@ -86,6 +85,7 @@ impl PdfViewer {
 
             current_file_path: None,
             last_save_time: 0.0,
+
         }
     }
 
@@ -97,7 +97,9 @@ impl PdfViewer {
     }
 
     pub fn save_bookmark(&self) {
-        let Some(path) = &self.current_file_path else { return };
+        let Some(path) = &self.current_file_path else {
+            return;
+        };
         let bm_path = Self::bookmarks_path();
 
         let mut lines: Vec<String> = std::fs::read_to_string(&bm_path)
@@ -174,7 +176,7 @@ impl PdfViewer {
         }
     }
 
-    pub fn ensure_page_rendered(&mut self, page_idx: usize, ctx: &egui::Context) {
+    pub fn ensure_page_rendered(&mut self, page_idx: usize, ctx: &egui::Context, display_w: f32) {
         if self.page_cache.contains_key(&page_idx) {
             if let Some(pos) = self.page_cache_order.iter().position(|&p| p == page_idx) {
                 self.page_cache_order.remove(pos);
@@ -189,7 +191,7 @@ impl PdfViewer {
         };
 
         let scale_factor = ctx.pixels_per_point();
-        let render_w = (900.0 * self.zoom * scale_factor) as i32;
+        let render_w = (display_w * scale_factor) as i32;
         let config = PdfRenderConfig::new()
             .set_target_width(render_w)
             .set_clear_color(PdfColor::WHITE);
@@ -577,7 +579,7 @@ impl PdfViewer {
 
     pub fn page_display_w(&self, _page_idx: usize, avail_w: f32) -> f32 {
         let base = 900.0 * self.zoom;
-        base.min(avail_w - 24.0).max(100.0)
+        base.max(100.0)
     }
 
     pub fn page_display_size(&self, page_idx: usize, avail_w: f32) -> Vec2 {
