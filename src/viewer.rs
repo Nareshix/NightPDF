@@ -48,6 +48,9 @@ pub struct PdfViewer {
     // Bookmark / restore position
     pub current_file_path: Option<String>,
     pub last_save_time: f64,
+
+    pub show_zoom_input: bool,
+pub zoom_input: String,
 }
 
 impl PdfViewer {
@@ -85,7 +88,8 @@ impl PdfViewer {
 
             current_file_path: None,
             last_save_time: 0.0,
-
+show_zoom_input: false,
+zoom_input: String::new(),
         }
     }
 

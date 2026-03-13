@@ -13,7 +13,7 @@ impl eframe::App for PdfViewer {
         let wants_keyboard = ctx.wants_keyboard_input();
         let mut do_copy = false;
 
-        let (open, ctrl_f, ctrl_a, esc, ctrl_g) = ctx.input_mut(|i| {
+        let (open, ctrl_f, ctrl_a, esc, ctrl_g, ctrl_plus, ctrl_minus) = ctx.input_mut(|i| {
             if !wants_keyboard {
                 if i.events.iter().any(|e| matches!(e, egui::Event::Copy)) {
                     do_copy = true;
@@ -36,6 +36,10 @@ impl eframe::App for PdfViewer {
                 i.key_pressed(Key::Escape),
                 i.consume_key(egui::Modifiers::COMMAND, Key::G)
                     || i.consume_key(egui::Modifiers::CTRL, Key::G),
+                i.consume_key(egui::Modifiers::CTRL, Key::Equals)
+                    || i.consume_key(egui::Modifiers::COMMAND, Key::Equals),
+                i.consume_key(egui::Modifiers::CTRL, Key::Minus)
+                    || i.consume_key(egui::Modifiers::COMMAND, Key::Minus),
             )
         });
 
@@ -73,6 +77,16 @@ impl eframe::App for PdfViewer {
             self.jump_error = false;
         }
 
+        if ctrl_plus {
+            self.zoom = (self.zoom + 0.15).min(3.0);
+            self.page_cache.clear();
+            self.page_cache_order.clear();
+        }
+        if ctrl_minus {
+            self.zoom = (self.zoom - 0.15).max(0.3);
+            self.page_cache.clear();
+            self.page_cache_order.clear();
+        }
         egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
@@ -161,12 +175,43 @@ impl eframe::App for PdfViewer {
                     self.zoom = (self.zoom - 0.15).max(0.3);
                     self.page_cache.clear();
                     self.page_cache_order.clear();
+                    self.show_zoom_input = false;
                 }
-                ui.label(format!("{:.0}%", self.zoom * 100.0));
-                if ui.button("+").clicked() {
-                    self.zoom = (self.zoom + 0.15).min(3.0);
+                if self.show_zoom_input {
+                    let mut enter_pressed = false;
+                    ui.input(|i| {
+                        if i.key_pressed(Key::Enter) {
+                            enter_pressed = true;
+                        }
+                    });
+                    let resp = ui.add(
+                        egui::TextEdit::singleline(&mut self.zoom_input)
+                            .desired_width(48.0)
+                            .hint_text("%"),
+                    );
+                    resp.request_focus();
+                    if enter_pressed || resp.lost_focus() {
+                        let cleaned = self.zoom_input.trim().trim_end_matches('%');
+                        if let Ok(pct) = cleaned.parse::<f32>() {
+                            self.zoom = (pct / 100.0).clamp(0.3, 3.0);
+                            self.page_cache.clear();
+                            self.page_cache_order.clear();
+                        }
+                        self.show_zoom_input = false;
+                    }
+                } else if ui
+                    .button(format!("{:.0}%", self.zoom * 100.0))
+                    .on_hover_text("Click to enter zoom %")
+                    .clicked()
+                {
+                    self.zoom_input = format!("{:.0}", self.zoom * 100.0);
+                    self.show_zoom_input = true;
+                }
+                if ui.button("↺").on_hover_text("Reset zoom to 100%").clicked() {
+                    self.zoom = 1.0;
                     self.page_cache.clear();
                     self.page_cache_order.clear();
+                    self.show_zoom_input = false;
                 }
                 ui.separator();
                 if ui.button("🔍  Ctrl+F").clicked() {
