@@ -78,17 +78,31 @@ impl eframe::App for PdfViewer {
             self.jump_error = false;
         }
         // ── Fast Uniform Scrolling (No Bounce) ────────────────────────────────
-        let scroll_multiplier = 7.0; // 1.0 is normal speed. 2.0 is double, 3.0 is triple.
+        // ── Momentum Scrolling ────────────────────────────────────────────────
+        let scroll_multiplier = 7.0;
+        let friction = 0.88; // 0.0 = instant stop, 1.0 = never stops. Tune this.
 
         let scroll_y = ctx.input(|i| i.raw_scroll_delta.y);
+        let dt = ctx.input(|i| i.predicted_dt);
+
         if scroll_y.abs() > 0.0 {
-            // egui natively applies 1x of the scroll. We apply the extra amount.
-            // (scroll_y is negative when scrolling down/pulling mouse wheel back)
-            self.scroll_offset -= scroll_y * (scroll_multiplier);
+            // New input: kick the velocity
+            self.scroll_velocity -= scroll_y * scroll_multiplier;
+        }
+
+        // Apply friction every frame to bleed off velocity
+        self.scroll_velocity *= friction;
+
+        // Stop entirely once velocity is negligible to avoid endless repaints
+        if self.scroll_velocity.abs() < 0.5 {
+            self.scroll_velocity = 0.0;
+        }
+
+        if self.scroll_velocity.abs() > 0.0 {
+            self.scroll_offset += self.scroll_velocity * dt * 60.0; // 60.0 normalises for 60fps
             self.scroll_offset = self.scroll_offset.max(0.0);
             ctx.request_repaint();
         }
-
         // ── Toolbar ───────────────────────────────────────────────────────────
         egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
             ui.add_space(4.0);
