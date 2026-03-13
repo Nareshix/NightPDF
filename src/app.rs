@@ -179,11 +179,11 @@ impl eframe::App for PdfViewer {
                     }
 
                     if self.search_match_count > 0 {
-                        // Navigation Arrows
-                        if ui.button("↑").on_hover_text("Previous match").clicked() {
+                        // Navigation Arrows (using safe standard characters)
+                        if ui.button(" < ").on_hover_text("Previous match").clicked() {
                             self.prev_search_match();
                         }
-                        if ui.button("↓").on_hover_text("Next match").clicked() {
+                        if ui.button(" > ").on_hover_text("Next match").clicked() {
                             self.next_search_match();
                         }
 
@@ -196,7 +196,7 @@ impl eframe::App for PdfViewer {
                         ui.colored_label(Color32::from_rgb(255, 100, 100), "No matches");
                     }
 
-                    if ui.button("✕").clicked() {
+                    if ui.button(" X ").clicked() {
                         self.show_search = false;
                         self.search_bounds.clear();
                         self.search_match_count = 0;
