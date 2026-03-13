@@ -19,7 +19,7 @@ pdf-viewer features
 - [x] goto page number (ctrl g)
 - [] signature
 - [] jump to links in pdf
-- [] zoom (pinch or ctrl +/-)
+- [x] zoom (ctrl +/-) pinch is too difficult :/ next time maybe
 - [] hover links to show tooltip?
 - [] direct editing of pdf files?
 - [x] save last seen page and open pdf file at that page
