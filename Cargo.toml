@@ -10,8 +10,10 @@ path = "src/main.rs"
 [dependencies]
 eframe = { version = "0.31", features = ["default"] }
 egui = "0.31"
-pdfium-render = { version = "0.8.37", features = ["image_latest", "thread_safe", "sync"] }
+# pdfium-render = { version = "0.8.37", features = ["image_latest", "thread_safe", "sync"] }
 image = "0.25"
+pdfium-render = { version = "0.8", features = ["sync"] }
+
 arboard = "3"
 rfd = "0.15"
 log = "0.4"

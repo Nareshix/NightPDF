@@ -43,3 +43,5 @@ Page thumbnails sidebar — visual strip of pages on the left for quick navigati
 Invert colors toggle — useful for dark theme, separate from the theme system
 Ctrl+scroll to zoom — standard in most document viewers
 Case-sensitive search toggle — currently always case-insensitive presumably
+
+ocr?
