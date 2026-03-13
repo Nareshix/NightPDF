@@ -1,14 +1,14 @@
 use eframe::egui::Color32;
 
 pub const THEMES: &[(&str, u8, u8, u8)] = &[
-    ("Original",          255, 255, 255),
-    ("Classic Dark",      0,   0,   0  ),
-    ("Claude Warm",       42,  37,  34 ),
-    ("ChatGPT Cool",      52,  53,  65 ),
-    ("Sepia Dark",        40,  35,  25 ),
-    ("Midnight Blue",     25,  30,  45 ),
-    ("Forest Green",      25,  35,  30 ),
-    ("Mocha Blue",  30,  30,  46 ),
+    ("Original", 255, 255, 255),
+    ("Classic Dark", 0, 0, 0),
+    ("Claude Warm", 42, 37, 34),
+    ("ChatGPT Cool", 52, 53, 65),
+    ("Sepia Dark", 40, 35, 25),
+    ("Midnight Blue", 25, 30, 45),
+    ("Forest Green", 25, 35, 30),
+    ("Mocha Blue", 30, 30, 46),
 ];
 pub fn average_brightness_bgra(pixels: &[u8], width: usize, height: usize) -> f32 {
     let step_x = (width / 20).max(1);
@@ -33,10 +33,19 @@ pub fn average_brightness_bgra(pixels: &[u8], width: usize, height: usize) -> f3
         }
         y += step_y;
     }
-    if count == 0 { 128.0 } else { sum / count as f32 }
+    if count == 0 {
+        128.0
+    } else {
+        sum / count as f32
+    }
 }
 
-pub fn apply_theme_and_convert_bgra_to_rgba(pixels: &mut [u8], width: usize, height: usize, theme_idx: usize) {
+pub fn apply_theme_and_convert_bgra_to_rgba(
+    pixels: &mut [u8],
+    width: usize,
+    height: usize,
+    theme_idx: usize,
+) {
     if theme_idx == 0 {
         // Original Theme: Just swap Blue and Red to make it RGBA for egui
         for chunk in pixels.chunks_exact_mut(4) {

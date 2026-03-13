@@ -1,7 +1,7 @@
+mod app;
 mod theme;
 mod types;
 mod viewer;
-mod app;
 
 use viewer::PdfViewer;
 
