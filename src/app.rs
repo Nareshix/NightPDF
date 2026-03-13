@@ -6,27 +6,26 @@ use crate::viewer::PdfViewer;
 
 impl eframe::App for PdfViewer {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Check if the user is typing in a text box (like the search bar)
+        let wants_keyboard = ctx.wants_keyboard_input();
         let mut do_copy = false;
 
         let (open, ctrl_f, ctrl_a, esc, enter) = ctx.input_mut(|i| {
-            // Check for the native OS copy event (egui intercepts Ctrl+C / Cmd+C and creates this)
-            if i.events.iter().any(|e| matches!(e, egui::Event::Copy)) {
-                do_copy = true;
-            }
-            // Fallback: check raw keystrokes just in case
-            if i.consume_key(egui::Modifiers::COMMAND, Key::C)
-                || i.consume_key(egui::Modifiers::CTRL, Key::C)
-            {
-                do_copy = true;
+            // Only steal the copy event if the search box IS NOT focused
+            if !wants_keyboard {
+                if i.events.iter().any(|e| matches!(e, egui::Event::Copy)) {
+                    do_copy = true;
+                }
+                if i.consume_key(egui::Modifiers::COMMAND, Key::C) || i.consume_key(egui::Modifiers::CTRL, Key::C) {
+                    do_copy = true;
+                }
             }
 
             (
-                i.consume_key(egui::Modifiers::COMMAND, Key::O)
-                    || i.consume_key(egui::Modifiers::CTRL, Key::O),
-                i.consume_key(egui::Modifiers::COMMAND, Key::F)
-                    || i.consume_key(egui::Modifiers::CTRL, Key::F),
-                i.consume_key(egui::Modifiers::COMMAND, Key::A)
-                    || i.consume_key(egui::Modifiers::CTRL, Key::A),
+                i.consume_key(egui::Modifiers::COMMAND, Key::O) || i.consume_key(egui::Modifiers::CTRL, Key::O),
+                i.consume_key(egui::Modifiers::COMMAND, Key::F) || i.consume_key(egui::Modifiers::CTRL, Key::F),
+                // Only steal Ctrl+A if the search box IS NOT focused!
+                !wants_keyboard && (i.consume_key(egui::Modifiers::COMMAND, Key::A) || i.consume_key(egui::Modifiers::CTRL, Key::A)),
                 i.key_pressed(Key::Escape),
                 i.key_pressed(Key::Enter),
             )
@@ -244,6 +243,7 @@ impl eframe::App for PdfViewer {
                                         Color32::WHITE,
                                     );
 
+                                    // Render Search Highlights
                                     let search_rects: Vec<_> = self
                                         .search_bounds
                                         .iter()
@@ -267,7 +267,7 @@ impl eframe::App for PdfViewer {
                                         }
                                     }
 
-                                    // REPLACE WITH THIS:
+                                    // Render Text Selection Highlights (Connected & Merged)
                                     let sel_rects: Vec<_> = self
                                         .selected_rects
                                         .iter()
@@ -275,21 +275,19 @@ impl eframe::App for PdfViewer {
                                         .map(|(_, r)| *r)
                                         .collect();
 
-                                    // 1. Convert to screen coordinates
+                                    // Convert to screen coordinates
                                     let mut screen_rects = Vec::new();
                                     for pr in &sel_rects {
-                                        if let Some(sr) = self.pdf_rect_to_screen_page(pr, page_idx)
-                                        {
+                                        if let Some(sr) = self.pdf_rect_to_screen_page(pr, page_idx) {
                                             screen_rects.push(sr);
                                         }
                                     }
 
-                                    // 2. Merge adjacent characters/words on the same line into solid blocks
+                                    // Merge adjacent characters/words on the same line into solid blocks
                                     let mut merged_rects: Vec<Rect> = Vec::new();
                                     for sr in screen_rects {
                                         if let Some(last) = merged_rects.last_mut() {
-                                            let center_y_diff =
-                                                (sr.center().y - last.center().y).abs();
+                                            let center_y_diff = (sr.center().y - last.center().y).abs();
                                             let height = sr.height().min(last.height());
 
                                             // If they are on the same line (centers are close)
@@ -305,11 +303,11 @@ impl eframe::App for PdfViewer {
                                         merged_rects.push(sr);
                                     }
 
-                                    // 3. Draw the merged continuous blocks
+                                    // Draw the merged continuous blocks
                                     for sr in merged_rects {
                                         painter.rect_filled(
                                             sr,
-                                            2.0, // Added a slight 2.0 pixel curve to the edges for a premium look
+                                            2.0, // Added a slight 2.0 pixel curve to the edges
                                             Color32::from_rgba_premultiplied(80, 140, 255, 110),
                                         );
                                     }
@@ -410,7 +408,8 @@ impl eframe::App for PdfViewer {
                             (pos.y - (viewport_rect.bottom() - scroll_zone)) / scroll_zone;
                         self.scroll_offset += scroll_speed * intensity.clamp(0.0, 2.0) * dt;
                         auto_scrolled = true;
-                    } else if pos.y < viewport_rect.top() + scroll_zone {
+                    }
+                    else if pos.y < viewport_rect.top() + scroll_zone {
                         let intensity = ((viewport_rect.top() + scroll_zone) - pos.y) / scroll_zone;
                         self.scroll_offset -= scroll_speed * intensity.clamp(0.0, 2.0) * dt;
                         self.scroll_offset = self.scroll_offset.max(0.0);
