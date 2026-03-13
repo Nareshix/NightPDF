@@ -10,7 +10,7 @@ impl eframe::App for PdfViewer {
         let wants_keyboard = ctx.wants_keyboard_input();
         let mut do_copy = false;
 
-        let (open, ctrl_f, ctrl_a, esc, enter) = ctx.input_mut(|i| {
+        let (open, ctrl_f, ctrl_a, esc) = ctx.input_mut(|i| {
             // Only steal the copy event if the search box IS NOT focused
             if !wants_keyboard {
                 if i.events.iter().any(|e| matches!(e, egui::Event::Copy)) {
@@ -27,7 +27,6 @@ impl eframe::App for PdfViewer {
                 // Only steal Ctrl+A if the search box IS NOT focused!
                 !wants_keyboard && (i.consume_key(egui::Modifiers::COMMAND, Key::A) || i.consume_key(egui::Modifiers::CTRL, Key::A)),
                 i.key_pressed(Key::Escape),
-                i.key_pressed(Key::Enter),
             )
         });
 
@@ -38,6 +37,11 @@ impl eframe::App for PdfViewer {
         }
         if ctrl_f {
             self.show_search = !self.show_search;
+            if !self.show_search {
+                self.search_bounds.clear();
+                self.search_match_count = 0;
+                self.search_current_match = 0;
+            }
         }
         if do_copy {
             if !self.selected_text.is_empty() {
@@ -50,6 +54,8 @@ impl eframe::App for PdfViewer {
         if esc {
             self.show_search = false;
             self.search_bounds.clear();
+            self.search_match_count = 0;
+            self.search_current_match = 0;
         }
 
         // ── Smooth scroll physics ─────────────────────────────────────────────
@@ -107,6 +113,11 @@ impl eframe::App for PdfViewer {
                 ui.separator();
                 if ui.button("🔍  Ctrl+F").clicked() {
                     self.show_search = !self.show_search;
+                    if !self.show_search {
+                        self.search_bounds.clear();
+                        self.search_match_count = 0;
+                        self.search_current_match = 0;
+                    }
                 }
                 if !self.selected_text.is_empty() {
                     if ui.button("📋 Copy  Ctrl+C").clicked() {
@@ -123,12 +134,28 @@ impl eframe::App for PdfViewer {
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
                     ui.label("🔍");
+
+                    // 1. Detect Enter key BEFORE the TextEdit has a chance to swallow it
+                    let mut enter_pressed = false;
+                    let mut shift_pressed = false;
+                    ui.input(|i| {
+                        if i.key_pressed(Key::Enter) {
+                            enter_pressed = true;
+                            shift_pressed = i.modifiers.shift;
+                        }
+                    });
+
+                    // 2. Draw the Search text box
                     let resp = ui.add_sized(
                         [280.0, 24.0],
                         egui::TextEdit::singleline(&mut self.search_input)
                             .hint_text("Search all pages…"),
                     );
-                    resp.request_focus();
+
+                    // Only request focus right when they press Ctrl+F
+                    if ctrl_f {
+                        resp.request_focus();
+                    }
 
                     // Live search as you type
                     if resp.changed() {
@@ -136,31 +163,44 @@ impl eframe::App for PdfViewer {
                         self.do_search();
                     }
 
-                    if (resp.has_focus() && enter) || ui.button("Find").clicked() {
-                        self.search_query = self.search_input.clone();
-                        self.do_search();
+                    // 3. Process Enter jumps ONLY if the Search box is active.
+                    // (Singleline TextEdits intentionally drop focus when Enter is pressed,
+                    // so we check if it currently has focus OR if it just lost it this exact frame).
+                    if resp.has_focus() || (resp.lost_focus() && enter_pressed) {
+                        if enter_pressed {
+                            if shift_pressed {
+                                self.prev_search_match();
+                            } else {
+                                self.next_search_match();
+                            }
+                            // Re-grab focus instantly so the user can just mash Enter repeatedly!
+                            resp.request_focus();
+                        }
                     }
 
                     if self.search_match_count > 0 {
+                        // Navigation Arrows
+                        if ui.button("↑").on_hover_text("Previous match").clicked() {
+                            self.prev_search_match();
+                        }
+                        if ui.button("↓").on_hover_text("Next match").clicked() {
+                            self.next_search_match();
+                        }
+
+                        // Match Counter (e.g. 1 / 3)
                         ui.colored_label(
                             Color32::from_rgb(100, 220, 120),
-                            format!(
-                                "{} match{}",
-                                self.search_match_count,
-                                if self.search_match_count == 1 {
-                                    ""
-                                } else {
-                                    "es"
-                                }
-                            ),
+                            format!("{} / {}", self.search_current_match + 1, self.search_match_count),
                         );
                     } else if !self.search_query.is_empty() {
                         ui.colored_label(Color32::from_rgb(255, 100, 100), "No matches");
                     }
+
                     if ui.button("✕").clicked() {
                         self.show_search = false;
                         self.search_bounds.clear();
                         self.search_match_count = 0;
+                        self.search_current_match = 0;
                     }
                 });
                 ui.add_space(4.0);
@@ -207,6 +247,29 @@ impl eframe::App for PdfViewer {
             let avail_w = ui.available_width();
             let viewport_rect = ui.clip_rect();
 
+            // ── SCROLL TO MATCH LOGIC ─────────────────────────────────────────
+            // Calculates the exact pixel Y offset of the target search match
+            if self.jump_to_match && self.search_match_count > 0 {
+                self.jump_to_match = false;
+                let (page_idx, rect) = self.search_bounds[self.search_current_match];
+
+                let mut y_offset = 12.0; // initial top space
+                for i in 0..page_idx {
+                    y_offset += self.page_display_size(i, avail_w).y + 8.0; // 8.0 is padding between pages
+                }
+
+                if let Some(info) = self.page_infos.get(page_idx) {
+                    let page_size = self.page_display_size(page_idx, avail_w);
+                    let top_pt = rect.top().value;
+                    // Compute absolute distance from top of document
+                    let rel_y = ((info.height_pts - top_pt) / info.height_pts) * page_size.y;
+
+                    // Automatically Scroll - minus 100 padding so the text isn't glued to the top of screen
+                    self.scroll_offset = (y_offset + rel_y - 100.0).max(0.0);
+                    self.scroll_velocity = 0.0; // Stop any existing physics scroll velocity
+                }
+            }
+
             let scroll_output = egui::ScrollArea::vertical()
                 .auto_shrink([false; 2])
                 .vertical_scroll_offset(self.scroll_offset)
@@ -244,24 +307,49 @@ impl eframe::App for PdfViewer {
                                     );
 
                                     // Render Search Highlights
-                                    let search_rects: Vec<_> = self
-                                        .search_bounds
-                                        .iter()
-                                        .filter(|(pi, _)| *pi == page_idx)
-                                        .map(|(_, r)| *r)
-                                        .collect();
-                                    for pr in &search_rects {
-                                        if let Some(sr) = self.pdf_rect_to_screen_page(pr, page_idx)
-                                        {
+                                    let mut search_rects = Vec::new();
+                                    let mut active_rect = None;
+
+                                    // Filter out regular vs active search hits
+                                    for (i, &(pi, pr)) in self.search_bounds.iter().enumerate() {
+                                        if pi == page_idx {
+                                            if i == self.search_current_match {
+                                                active_rect = Some(pr);
+                                            } else {
+                                                search_rects.push(pr);
+                                            }
+                                        }
+                                    }
+
+                                    // Render general background matches (Cyan)
+                                    for pr in search_rects {
+                                        if let Some(sr) = self.pdf_rect_to_screen_page(&pr, page_idx) {
                                             painter.rect_filled(
                                                 sr,
                                                 2.0,
-                                                Color32::from_rgba_premultiplied(0, 150, 255, 80), // High-visibility Cyan
+                                                Color32::from_rgba_premultiplied(0, 150, 255, 80),
                                             );
                                             painter.rect_stroke(
                                                 sr,
                                                 2.0,
                                                 Stroke::new(1.5, Color32::from_rgb(0, 150, 255)),
+                                                egui::StrokeKind::Outside,
+                                            );
+                                        }
+                                    }
+
+                                    // Render the ACTIVE current match on top (Bright Orange)
+                                    if let Some(pr) = active_rect {
+                                        if let Some(sr) = self.pdf_rect_to_screen_page(&pr, page_idx) {
+                                            painter.rect_filled(
+                                                sr,
+                                                2.0,
+                                                Color32::from_rgba_premultiplied(255, 150, 0, 120),
+                                            );
+                                            painter.rect_stroke(
+                                                sr,
+                                                2.0,
+                                                Stroke::new(2.5, Color32::from_rgb(255, 200, 0)),
                                                 egui::StrokeKind::Outside,
                                             );
                                         }

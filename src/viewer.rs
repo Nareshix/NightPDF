@@ -37,6 +37,8 @@ pub struct PdfViewer {
     pub search_query: String,
     pub search_bounds: Vec<(usize, PdfRect)>,
     pub search_match_count: usize,
+    pub search_current_match: usize,
+    pub jump_to_match: bool,
 
     pub page_screen_rects: Vec<Rect>,
 
@@ -69,6 +71,8 @@ impl PdfViewer {
             search_query: String::new(),
             search_bounds: Vec::new(),
             search_match_count: 0,
+            search_current_match: 0,
+            jump_to_match: false,
             page_screen_rects: Vec::new(),
             scroll_offset: 0.0,
             scroll_velocity: 0.0,
@@ -105,8 +109,12 @@ impl PdfViewer {
         self.page_cache.clear();
         self.page_cache_order.clear();
         self.clear_selection();
+
         self.search_bounds.clear();
         self.search_match_count = 0;
+        self.search_current_match = 0;
+        self.jump_to_match = false;
+
         self.page_screen_rects = vec![Rect::ZERO; self.total_pages];
         self.scroll_offset = 0.0;
         self.scroll_velocity = 0.0;
@@ -452,6 +460,9 @@ impl PdfViewer {
     pub fn do_search(&mut self) {
         self.search_bounds.clear();
         self.search_match_count = 0;
+        self.search_current_match = 0;
+        self.jump_to_match = true;
+
         if self.search_query.is_empty() {
             return;
         }
@@ -480,6 +491,27 @@ impl PdfViewer {
             }
         }
         self.search_match_count = self.search_bounds.len();
+        if self.search_match_count == 0 {
+            self.jump_to_match = false; // Nowhere to scroll if no matches
+        }
+    }
+
+    pub fn next_search_match(&mut self) {
+        if self.search_match_count > 0 {
+            self.search_current_match = (self.search_current_match + 1) % self.search_match_count;
+            self.jump_to_match = true;
+        }
+    }
+
+    pub fn prev_search_match(&mut self) {
+        if self.search_match_count > 0 {
+            if self.search_current_match == 0 {
+                self.search_current_match = self.search_match_count - 1;
+            } else {
+                self.search_current_match -= 1;
+            }
+            self.jump_to_match = true;
+        }
     }
 
     pub fn clear_selection(&mut self) {
