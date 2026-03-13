@@ -284,33 +284,6 @@ impl eframe::App for PdfViewer {
             let viewport_rect = ui.clip_rect();
             let viewport_center_y = viewport_rect.center().y;
 
-            // ── Scroll to page ────────────────────────────────────────────────
-            if let Some(target_page) = self.target_scroll_page.take() {
-                let mut y_offset = 12.0;
-                for i in 0..target_page {
-                    y_offset += self.page_display_size(i, avail_w).y + 8.0;
-                }
-                self.scroll_offset = y_offset;
-            }
-
-            // ── Scroll to search match ────────────────────────────────────────
-            if self.jump_to_match && self.search_match_count > 0 {
-                self.jump_to_match = false;
-                let (page_idx, rect) = self.search_bounds[self.search_current_match];
-
-                let mut y_offset = 12.0;
-                for i in 0..page_idx {
-                    y_offset += self.page_display_size(i, avail_w).y + 8.0;
-                }
-
-                if let Some(info) = self.page_infos.get(page_idx) {
-                    let page_size = self.page_display_size(page_idx, avail_w);
-                    let top_pt = rect.top().value;
-                    let rel_y = ((info.height_pts - top_pt) / info.height_pts) * page_size.y;
-                    self.scroll_offset = (y_offset + rel_y - 100.0).max(0.0);
-                }
-            }
-
             let mut best_page = self.current_page;
             let mut best_dist = f32::MAX;
 
@@ -330,11 +303,31 @@ impl eframe::App for PdfViewer {
 
                             let (page_rect, response) =
                                 ui.allocate_exact_size(size, Sense::click_and_drag());
-
                             if self.page_screen_rects.len() > page_idx {
                                 self.page_screen_rects[page_idx] = page_rect;
                             }
 
+                            // Scroll to page jump
+                            if self.target_scroll_page == Some(page_idx) {
+                                self.target_scroll_page = None;
+                                ui.scroll_to_rect(page_rect, Some(egui::Align::TOP));
+                            }
+
+                            // Scroll to search match
+                            if self.jump_to_match {
+                                if let Some(&(match_page, pr)) =
+                                    self.search_bounds.get(self.search_current_match)
+                                {
+                                    if match_page == page_idx {
+                                        self.jump_to_match = false;
+                                        if let Some(sr) =
+                                            self.pdf_rect_to_screen_page(&pr, page_idx)
+                                        {
+                                            ui.scroll_to_rect(sr, Some(egui::Align::Center));
+                                        }
+                                    }
+                                }
+                            }
                             let is_visible = viewport_rect.intersects(page_rect);
 
                             if is_visible {
