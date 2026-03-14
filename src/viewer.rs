@@ -1,4 +1,5 @@
 use eframe::egui::{self, ColorImage, Pos2, Rect, TextureHandle, TextureOptions, Vec2};
+use pdfium_render::prelude::PdfPoints;
 use pdfium_render::prelude::*;
 use std::collections::{HashMap, VecDeque};
 use std::sync::OnceLock;
@@ -649,5 +650,39 @@ impl PdfViewer {
             }
         }
         false
+    }
+
+    /// Check if there is an internal link at the given screen position and return the target page index.
+    pub fn get_link_target_page(&self, pos: Pos2, page_idx: usize) -> Option<usize> {
+        let (px, py) = self.screen_to_pdf_page(pos, page_idx)?;
+        let doc = self.document.as_ref()?;
+        let page = doc.pages().get(page_idx as u16).ok()?;
+        let links = page.links();
+        let link = links.link_at_point(PdfPoints::new(px), PdfPoints::new(py))?;
+
+        // Try direct destination first
+        if let Some(dest) = link.destination() {
+            if let Ok(page_index) = dest.page_index() {
+                return Some(page_index as usize);
+            }
+        }
+
+        // Fall back to action-based destination
+        if let Some(action) = link.action() {
+            if let Some(local) = action.as_local_destination_action() {
+                if let Ok(dest) = local.destination() {
+                    if let Ok(page_index) = dest.page_index() {
+                        return Some(page_index as usize);
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Check if the given screen position is over a clickable internal link.
+    pub fn is_pos_over_link(&self, pos: Pos2, page_idx: usize) -> bool {
+        self.get_link_target_page(pos, page_idx).is_some()
     }
 }

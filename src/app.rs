@@ -583,18 +583,30 @@ impl eframe::App for PdfViewer {
                                     );
                                 }
                                 if response.hovered() {
-                                    let over_text = ctx
+                                    let cursor = ctx
                                         .input(|i| i.pointer.latest_pos())
-                                        .map(|pos| self.is_pos_over_text(pos, page_idx))
-                                        .unwrap_or(false);
-                                    ctx.set_cursor_icon(if over_text {
-                                        CursorIcon::Text
-                                    } else {
-                                        CursorIcon::Default
-                                    });
+                                        .map(|pos| {
+                                            if self.is_pos_over_link(pos, page_idx) {
+                                                CursorIcon::PointingHand
+                                            } else if self.is_pos_over_text(pos, page_idx) {
+                                                CursorIcon::Text
+                                            } else {
+                                                CursorIcon::Default
+                                            }
+                                        })
+                                        .unwrap_or(CursorIcon::Default);
+                                    ctx.set_cursor_icon(cursor);
                                 }
                                 if response.clicked() {
-                                    self.clear_selection();
+                                    // Check for internal link navigation first
+                                    let link_target = ctx
+                                        .input(|i| i.pointer.interact_pos())
+                                        .and_then(|pos| self.get_link_target_page(pos, page_idx));
+                                    if let Some(target_page) = link_target {
+                                        self.target_scroll_page = Some(target_page);
+                                    } else {
+                                        self.clear_selection();
+                                    }
                                     ctx.request_repaint();
                                 }
                                 if response.double_clicked() {
