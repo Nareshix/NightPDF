@@ -229,7 +229,7 @@ impl PdfViewer {
             TextureOptions::LINEAR,
         );
 
-        if self.page_cache.len() >= 15 {
+        if self.page_cache.len() >= 5 {
             if let Some(oldest) = self.page_cache_order.pop_front() {
                 self.page_cache.remove(&oldest);
             }
