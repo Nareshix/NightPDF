@@ -425,6 +425,7 @@ impl eframe::App for PdfViewer {
                     .auto_shrink([false; 2])
                     .vertical_scroll_offset(self.scroll_offset)
                     .wheel_scroll_multiplier(egui::Vec2::new(5.0, 20.0))
+                    .animated(false)
                     .show(ui, |ui| {
                         for page_idx in 0..self.total_pages {
                             let size = self.page_display_size(page_idx, avail_w);
