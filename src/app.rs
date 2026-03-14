@@ -1,4 +1,3 @@
-
 use eframe::egui::{self, Color32, CursorIcon, Key, Pos2, Rect, Sense, Stroke};
 use rfd::FileDialog;
 
@@ -583,11 +582,17 @@ impl eframe::App for PdfViewer {
                                         Color32::from_gray(80),
                                     );
                                 }
-
                                 if response.hovered() {
-                                    ctx.set_cursor_icon(CursorIcon::Text);
+                                    let over_text = ctx
+                                        .input(|i| i.pointer.latest_pos())
+                                        .map(|pos| self.is_pos_over_text(pos, page_idx))
+                                        .unwrap_or(false);
+                                    ctx.set_cursor_icon(if over_text {
+                                        CursorIcon::Text
+                                    } else {
+                                        CursorIcon::Default
+                                    });
                                 }
-
                                 if response.clicked() {
                                     self.clear_selection();
                                     ctx.request_repaint();

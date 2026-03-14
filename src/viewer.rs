@@ -621,4 +621,33 @@ impl PdfViewer {
         let h = w * info.height_pts / info.width_pts;
         Vec2::new(w, h)
     }
+
+    pub fn is_pos_over_text(&self, pos: Pos2, page_idx: usize) -> bool {
+        let Some((px, py)) = self.screen_to_pdf_page(pos, page_idx) else {
+            return false;
+        };
+        let Some(doc) = &self.document else {
+            return false;
+        };
+        let Ok(page) = doc.pages().get(page_idx as u16) else {
+            return false;
+        };
+        let Ok(text) = page.text() else {
+            return false;
+        };
+        let binding = text.chars();
+        let chars: Vec<_> = binding.iter().collect();
+        for ch in &chars {
+            if let Ok(b) = ch.loose_bounds() {
+                if px >= b.left().value
+                    && px <= b.right().value
+                    && py >= b.bottom().value
+                    && py <= b.top().value
+                {
+                    return true;
+                }
+            }
+        }
+        false
+    }
 }
