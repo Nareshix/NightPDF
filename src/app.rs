@@ -274,8 +274,8 @@ impl eframe::App for PdfViewer {
                         self.page_cache_order.clear();
                         self.show_zoom_input = false;
                     }
-                    if ui.button("↺").on_hover_text("Reset zoom to 100%").clicked() {
-                        self.zoom = 0.85;
+                    if ui.button("↺").on_hover_text("Reset zoom to 75%").clicked() {
+                        self.zoom = 0.75;
                         self.page_cache.clear();
                         self.page_cache_order.clear();
                         self.show_zoom_input = false;
