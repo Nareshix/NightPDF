@@ -26,7 +26,7 @@ pdf-viewer features
 - [] have option to not invert images in dark mode (or specific images and remembers them.)
 - [] wasm
 - [] accelerated scrolling
-- [] toggle diff colours quicklky (mainly dark and light mode). or have an option to NOT invert colours for detected images or selected. 
+- [] toggle diff colours quicklky (mainly dark and light mode). or have an option to NOT invert colours for detected images or selected.
 
 Drag & drop to open — drop a PDF onto the window instead of using the file dialog
 Recent files list — remember last N opened files, show in a menu
@@ -51,3 +51,5 @@ ctrl + scroll not implemented. might do in future if i get a mouse
 # Todo
 rfd needs to be spawned in another thread
 search hangs main thread if pdf is large. need to spawn in another thread
+
+need to log any errors
