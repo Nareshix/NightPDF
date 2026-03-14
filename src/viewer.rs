@@ -71,7 +71,7 @@ impl PdfViewer {
             page_cache: HashMap::new(),
             page_cache_order: VecDeque::new(),
             theme_idx: 2,
-            zoom: 0.85,
+            zoom: 0.75,
             drag_start: None,
             drag_end: None,
             selected_text: String::new(),

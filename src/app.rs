@@ -113,14 +113,14 @@ impl eframe::App for PdfViewer {
         }
         if ctrl_plus {
             let old_zoom = self.zoom;
-            self.zoom = (self.zoom + 0.15).min(3.0);
+            self.zoom = (self.zoom + 0.25).min(3.0);
             self.scroll_offset *= self.zoom / old_zoom;
             self.page_cache.clear();
             self.page_cache_order.clear();
         }
         if ctrl_minus {
             let old_zoom = self.zoom;
-            self.zoom = (self.zoom - 0.15).max(0.3);
+            self.zoom = (self.zoom - 0.25).max(0.3);
             self.scroll_offset *= self.zoom / old_zoom;
             self.page_cache.clear();
             self.page_cache_order.clear();
@@ -233,7 +233,7 @@ impl eframe::App for PdfViewer {
 
                     ui.separator();
                     if ui.button("−").clicked() {
-                        self.zoom = (self.zoom - 0.15).max(0.3);
+                        self.zoom = (self.zoom - 0.25).max(0.3);
                         self.page_cache.clear();
                         self.page_cache_order.clear();
                         self.show_zoom_input = false;
@@ -269,7 +269,7 @@ impl eframe::App for PdfViewer {
                         self.show_zoom_input = true;
                     }
                     if ui.button("+").clicked() {
-                        self.zoom = (self.zoom + 0.15).min(3.0);
+                        self.zoom = (self.zoom + 0.25).min(3.0);
                         self.page_cache.clear();
                         self.page_cache_order.clear();
                         self.show_zoom_input = false;
@@ -412,7 +412,7 @@ impl eframe::App for PdfViewer {
                 let scroll_output = egui::ScrollArea::both()
                     .auto_shrink([false; 2])
                     .vertical_scroll_offset(self.scroll_offset)
-                    .wheel_scroll_multiplier(egui::Vec2::new(1.0, 10.0))
+                    .wheel_scroll_multiplier(egui::Vec2::new(5.0, 10.0))
                     .show(ui, |ui| {
                         for page_idx in 0..self.total_pages {
                             let size = self.page_display_size(page_idx, avail_w);
