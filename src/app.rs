@@ -14,8 +14,8 @@ impl eframe::App for PdfViewer {
         let mut do_copy = false;
 
         // TODO: enum
-        let (open, ctrl_f, ctrl_a, esc, ctrl_g, ctrl_plus, ctrl_minus, ctrl_h) =
-            ctx.input_mut(|i| {
+        let (open, ctrl_f, ctrl_a, esc, ctrl_g, ctrl_plus, ctrl_minus, ctrl_h, ctrl_r) = ctx
+            .input_mut(|i| {
                 if !wants_keyboard {
                     if i.events.iter().any(|e| matches!(e, egui::Event::Copy)) {
                         do_copy = true;
@@ -44,6 +44,8 @@ impl eframe::App for PdfViewer {
                         || i.consume_key(egui::Modifiers::COMMAND, Key::Minus),
                     i.consume_key(egui::Modifiers::CTRL, Key::H)
                         || i.consume_key(egui::Modifiers::COMMAND, Key::H),
+                    i.consume_key(egui::Modifiers::CTRL, Key::R)
+                        || i.consume_key(egui::Modifiers::COMMAND, Key::R),
                 )
             });
 
@@ -89,6 +91,12 @@ impl eframe::App for PdfViewer {
                 self.show_toolbar = true;
                 self.toolbar_hover_shown = false;
             }
+        }
+        if ctrl_r {
+            self.zoom = 0.75;
+            self.page_cache.clear();
+            self.page_cache_order.clear();
+            self.show_zoom_input = false;
         }
         if ctrl_f || ctrl_g {
             self.show_toolbar = true;
@@ -274,7 +282,11 @@ impl eframe::App for PdfViewer {
                         self.page_cache_order.clear();
                         self.show_zoom_input = false;
                     }
-                    if ui.button("↺").on_hover_text("Reset zoom to 75%").clicked() {
+                    if ui
+                        .button("↺")
+                        .on_hover_text("Reset zoom to 75% (CTRL+R)")
+                        .clicked()
+                    {
                         self.zoom = 0.75;
                         self.page_cache.clear();
                         self.page_cache_order.clear();
