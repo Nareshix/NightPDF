@@ -207,8 +207,7 @@ impl PdfViewer {
         };
 
         let scale_factor = ctx.pixels_per_point();
-        let full_w = (display_w / self.zoom).max(display_w);
-        let render_w = (full_w * scale_factor) as i32;
+        let render_w = (display_w * scale_factor * 1.5).round() as i32;
         let config = PdfRenderConfig::new()
             .set_target_width(render_w)
             .set_clear_color(PdfColor::WHITE);
