@@ -556,8 +556,27 @@ impl PdfViewer {
             };
 
             for segments in search.iter(PdfSearchDirection::SearchForward) {
+                let mut left = f32::MAX;
+                let mut bottom = f32::MAX;
+                let mut right: f32 = f32::MIN;
+                let mut top = f32::MIN;
+                let mut any = false;
                 for seg in segments.iter() {
-                    self.search_bounds.push((page_idx, seg.bounds()));
+                    let b = seg.bounds();
+                    left = left.min(b.left().value);
+                    bottom = bottom.min(b.bottom().value);
+                    right = right.max(b.right().value);
+                    top = top.max(b.top().value);
+                    any = true;
+                }
+                if any {
+                    let merged = PdfRect::new(
+                        PdfPoints::new(bottom),
+                        PdfPoints::new(left),
+                        PdfPoints::new(top),
+                        PdfPoints::new(right),
+                    );
+                    self.search_bounds.push((page_idx, merged));
                 }
             }
         }
