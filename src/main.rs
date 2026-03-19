@@ -1,4 +1,5 @@
 mod app;
+mod scroll;
 mod theme;
 mod types;
 mod viewer;

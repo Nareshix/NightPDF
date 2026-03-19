@@ -3,7 +3,9 @@ use pdfium_render::prelude::PdfPoints;
 use pdfium_render::prelude::*;
 use std::collections::{HashMap, VecDeque};
 use std::sync::OnceLock;
+use std::time::Instant;
 
+use crate::scroll::{KineticScrolling, VelocityTracker};
 use crate::theme::{self};
 use crate::types::PageInfo;
 
@@ -44,7 +46,12 @@ pub struct PdfViewer {
 
     pub page_screen_rects: Vec<Rect>,
 
-    pub scroll_offset: f32,
+    // Kinetic scroll state
+    pub offset: f64,
+    pub kinetic: Option<KineticScrolling>,
+    pub tracker: VelocityTracker,
+    pub last_scroll: Option<Instant>,
+    pub is_trackpad: bool,
 
     // Bookmark / restore position
     pub current_file_path: Option<String>,
@@ -90,7 +97,12 @@ impl PdfViewer {
             target_scroll_page: None,
 
             page_screen_rects: Vec::new(),
-            scroll_offset: 0.0,
+
+            offset: 0.0,
+            kinetic: None,
+            tracker: VelocityTracker::new(),
+            last_scroll: None,
+            is_trackpad: false,
 
             current_file_path: None,
             last_save_time: 0.0,
@@ -122,11 +134,16 @@ impl PdfViewer {
             .map(|l| l.to_string())
             .collect();
 
-        lines.push(format!("{}|{}|{}", path, self.scroll_offset, self.zoom));
+        lines.push(format!(
+            "{}|{}|{}",
+            path,
+            self.offset as f32,
+            self.zoom
+        ));
         let _ = std::fs::write(&bm_path, lines.join("\n"));
     }
 
-    fn load_bookmark(&self) -> Option<(f32, f32)> {
+    fn load_bookmark(&self) -> Option<(f64, f32)> {
         let path = self.current_file_path.as_ref()?;
         let line = std::fs::read_to_string(Self::bookmarks_path())
             .ok()?
@@ -135,10 +152,11 @@ impl PdfViewer {
             .to_string();
         let mut parts = line.split('|');
         parts.next(); // skip path
-        let scroll = parts.next()?.parse().ok()?;
+        let scroll: f32 = parts.next()?.parse().ok()?;
         let zoom = parts.next()?.parse().unwrap_or(1.0);
-        Some((scroll, zoom))
+        Some((scroll as f64, zoom))
     }
+
     pub fn load_pdf(&mut self, path: &std::path::Path) {
         let pdfium = PDFIUM.get().unwrap();
 
@@ -181,15 +199,39 @@ impl PdfViewer {
         self.target_scroll_page = None;
 
         self.page_screen_rects = vec![Rect::ZERO; self.total_pages];
-        self.scroll_offset = 0.0;
+        self.offset = 0.0;
+        self.kinetic = None;
+        self.tracker.clear();
+        self.last_scroll = None;
 
         self.current_file_path = path.to_str().map(|s| s.to_string());
 
         // Restore last position for this file
         if let Some((scroll, zoom)) = self.load_bookmark() {
-            self.scroll_offset = scroll;
+            self.offset = scroll;
             self.zoom = zoom;
         }
+    }
+
+    /// Cumulative Y start position (in content space) for each page.
+    /// Each page is separated by an 8px gap.
+    pub fn page_y_starts(&self, avail_w: f32) -> Vec<f32> {
+        let mut starts = Vec::with_capacity(self.total_pages);
+        let mut y = 0.0f32;
+        for i in 0..self.total_pages {
+            starts.push(y);
+            y += self.page_display_size(i, avail_w).y + 8.0;
+        }
+        starts
+    }
+
+    /// Total scrollable content height.
+    pub fn total_content_height(&self, avail_w: f32) -> f32 {
+        let mut h = 0.0f32;
+        for i in 0..self.total_pages {
+            h += self.page_display_size(i, avail_w).y + 8.0;
+        }
+        h + 12.0
     }
 
     pub fn ensure_page_rendered(&mut self, page_idx: usize, ctx: &egui::Context, display_w: f32) {

@@ -1,6 +1,8 @@
 use eframe::egui::{self, Color32, CursorIcon, Key, Pos2, Rect, Sense, Stroke};
 use rfd::FileDialog;
+use std::time::Instant;
 
+use crate::scroll::{accumulate_velocity, wheel_detent_step, KineticScrolling, MAGIC_SCROLL_FACTOR};
 use crate::theme::{self, THEMES};
 use crate::viewer::PdfViewer;
 
@@ -94,6 +96,7 @@ impl eframe::App for PdfViewer {
         }
         if ctrl_r {
             self.zoom = 0.75;
+            self.kinetic = None;
             self.page_cache.clear();
             self.page_cache_order.clear();
             self.show_zoom_input = false;
@@ -122,14 +125,16 @@ impl eframe::App for PdfViewer {
         if ctrl_plus {
             let old_zoom = self.zoom;
             self.zoom = (self.zoom + 0.25).min(3.0);
-            self.scroll_offset *= self.zoom / old_zoom;
+            self.offset *= (self.zoom / old_zoom) as f64;
+            self.kinetic = None;
             self.page_cache.clear();
             self.page_cache_order.clear();
         }
         if ctrl_minus {
             let old_zoom = self.zoom;
             self.zoom = (self.zoom - 0.25).max(0.3);
-            self.scroll_offset *= self.zoom / old_zoom;
+            self.offset *= (self.zoom / old_zoom) as f64;
+            self.kinetic = None;
             self.page_cache.clear();
             self.page_cache_order.clear();
         }
@@ -241,7 +246,10 @@ impl eframe::App for PdfViewer {
 
                     ui.separator();
                     if ui.button("−").clicked() {
+                        let old_zoom = self.zoom;
                         self.zoom = (self.zoom - 0.25).max(0.3);
+                        self.offset *= (self.zoom / old_zoom) as f64;
+                        self.kinetic = None;
                         self.page_cache.clear();
                         self.page_cache_order.clear();
                         self.show_zoom_input = false;
@@ -262,7 +270,10 @@ impl eframe::App for PdfViewer {
                         if enter_pressed || resp.lost_focus() {
                             let cleaned = self.zoom_input.trim().trim_end_matches('%');
                             if let Ok(pct) = cleaned.parse::<f32>() {
+                                let old_zoom = self.zoom;
                                 self.zoom = (pct / 100.0).clamp(0.3, 3.0);
+                                self.offset *= (self.zoom / old_zoom) as f64;
+                                self.kinetic = None;
                                 self.page_cache.clear();
                                 self.page_cache_order.clear();
                             }
@@ -277,7 +288,10 @@ impl eframe::App for PdfViewer {
                         self.show_zoom_input = true;
                     }
                     if ui.button("+").clicked() {
+                        let old_zoom = self.zoom;
                         self.zoom = (self.zoom + 0.25).min(3.0);
+                        self.offset *= (self.zoom / old_zoom) as f64;
+                        self.kinetic = None;
                         self.page_cache.clear();
                         self.page_cache_order.clear();
                         self.show_zoom_input = false;
@@ -288,6 +302,7 @@ impl eframe::App for PdfViewer {
                         .clicked()
                     {
                         self.zoom = 0.75;
+                        self.kinetic = None;
                         self.page_cache.clear();
                         self.page_cache_order.clear();
                         self.show_zoom_input = false;
@@ -394,8 +409,8 @@ impl eframe::App for PdfViewer {
             .frame(egui::Frame::none())
             .show(ctx, |ui| {
                 let bg = theme::theme_bg(self.theme_idx);
-                ui.painter()
-                    .rect_filled(ui.available_rect_before_wrap(), 0.0, bg);
+                let avail_rect = ui.available_rect_before_wrap();
+                ui.painter().rect_filled(avail_rect, 0.0, bg);
 
                 if self.document.is_none() {
                     ui.centered_and_justified(|ui| {
@@ -408,273 +423,311 @@ impl eframe::App for PdfViewer {
                     return;
                 }
 
-                let avail_w = ui.available_width();
+                let avail_w = avail_rect.width();
+                let view_h = avail_rect.height() as f64;
 
                 if (avail_w - self.last_avail_w).abs() > 1.0 {
                     self.page_cache.clear();
                     self.page_cache_order.clear();
                     self.last_avail_w = avail_w;
                 }
-                let viewport_rect = ui.clip_rect();
-                let viewport_center_y = viewport_rect.center().y;
 
+                let content_h = self.total_content_height(avail_w) as f64;
+                let max_offset = (content_h - view_h).max(0.0);
+                let step = wheel_detent_step(view_h);
+
+                // ── Kinetic scroll input ──────────────────────────────────────
+                let (raw_delta, is_trackpad) = ctx.input(|i| {
+                    let trackpad = i.smooth_scroll_delta != i.raw_scroll_delta;
+                    (i.raw_scroll_delta.y, trackpad)
+                });
+                self.is_trackpad = is_trackpad;
+
+                if raw_delta != 0.0 {
+                    if let Some(k) = &mut self.kinetic {
+                        k.stop();
+                    }
+                    let scaled = if is_trackpad {
+                        -(raw_delta as f64) * MAGIC_SCROLL_FACTOR
+                    } else {
+                        -(raw_delta as f64) / 50.0 * step
+                    };
+                    self.tracker.push(scaled);
+                    self.last_scroll = Some(Instant::now());
+                    self.offset = (self.offset + scaled).clamp(0.0, max_offset);
+                    ctx.request_repaint();
+                } else if self
+                    .last_scroll
+                    .is_some_and(|t| t.elapsed().as_millis() > 30)
+                {
+                    let mut vel = self.tracker.velocity();
+                    if vel.abs() > 20.0 {
+                        accumulate_velocity(&mut self.kinetic, &mut vel);
+                        self.kinetic =
+                            Some(KineticScrolling::new(0.0, max_offset, self.offset, vel));
+                    }
+                    self.last_scroll = None;
+                    self.tracker.clear();
+                }
+
+                if let Some(k) = &mut self.kinetic {
+                    let (pos, running) = k.tick();
+                    self.offset = pos.clamp(0.0, max_offset);
+                    if running {
+                        ctx.request_repaint();
+                    } else {
+                        self.kinetic = None;
+                    }
+                }
+
+                // ── Jump to page ──────────────────────────────────────────────
+                let page_starts = self.page_y_starts(avail_w);
+
+                if let Some(target) = self.target_scroll_page.take() {
+                    if let Some(&y) = page_starts.get(target) {
+                        self.offset = (y as f64).clamp(0.0, max_offset);
+                        self.kinetic = None;
+                    }
+                }
+
+                // ── Jump to search match ──────────────────────────────────────
+                if self.jump_to_match {
+                    self.jump_to_match = false;
+                    // Extract before mutably borrowing self
+                    let jump_info = self
+                        .search_bounds
+                        .get(self.search_current_match)
+                        .map(|(mp, pr)| (*mp, pr.top().value));
+                    if let Some((match_page, pr_top)) = jump_info {
+                        let page_size = self.page_display_size(match_page, avail_w);
+                        let height_pts = self.page_infos[match_page].height_pts;
+                        if let Some(&page_y) = page_starts.get(match_page) {
+                            let rel_y = (height_pts - pr_top) / height_pts * page_size.y;
+                            let abs_y = page_y as f64 + rel_y as f64;
+                            self.offset = (abs_y - view_h / 2.0).clamp(0.0, max_offset);
+                            self.kinetic = None;
+                        }
+                    }
+                }
+
+                // ── Page rendering loop ───────────────────────────────────────
+                let viewport_rect = avail_rect;
+                let viewport_center_y = viewport_rect.center().y;
                 let mut best_page = self.current_page;
                 let mut best_dist = f32::MAX;
 
-                let scroll_output = egui::ScrollArea::both()
-                    .auto_shrink([false; 2])
-                    .vertical_scroll_offset(self.scroll_offset)
-                    .wheel_scroll_multiplier(egui::Vec2::new(5.0, 20.0))
-                    .animated(false)
-                    .show(ui, |ui| {
-                        for page_idx in 0..self.total_pages {
-                            let size = self.page_display_size(page_idx, avail_w);
+                ui.set_clip_rect(viewport_rect);
 
-                            ui.horizontal(|ui| {
-                                let side_pad = ((avail_w - size.x) / 2.0).max(0.0);
-                                ui.add_space(side_pad);
-                                let (page_rect, response) =
-                                    ui.allocate_exact_size(size, Sense::click_and_drag());
-                                if self.page_screen_rects.len() > page_idx {
-                                    self.page_screen_rects[page_idx] = page_rect;
-                                }
+                for page_idx in 0..self.total_pages {
+                    let size = self.page_display_size(page_idx, avail_w);
+                    let side_pad = ((avail_w - size.x) / 2.0).max(0.0);
+                    let y = page_starts[page_idx] - self.offset as f32 + viewport_rect.min.y;
+                    let page_rect = Rect::from_min_size(
+                        Pos2::new(viewport_rect.min.x + side_pad, y),
+                        size,
+                    );
 
-                                // Scroll to page jump
-                                if self.target_scroll_page == Some(page_idx) {
-                                    self.target_scroll_page = None;
-                                    ui.scroll_to_rect(page_rect, Some(egui::Align::TOP));
-                                }
+                    if self.page_screen_rects.len() > page_idx {
+                        self.page_screen_rects[page_idx] = page_rect;
+                    }
 
-                                // Scroll to search match
-                                if self.jump_to_match {
-                                    if let Some(&(match_page, pr)) =
-                                        self.search_bounds.get(self.search_current_match)
-                                    {
-                                        if match_page == page_idx {
-                                            self.jump_to_match = false;
-                                            if let Some(sr) =
-                                                self.pdf_rect_to_screen_page(&pr, page_idx)
-                                            {
-                                                ui.scroll_to_rect(sr, Some(egui::Align::Center));
-                                            }
-                                        }
-                                    }
-                                }
-                                let is_visible = viewport_rect.intersects(page_rect);
+                    let is_visible = viewport_rect.intersects(page_rect);
 
-                                if is_visible {
-                                    let dist = (page_rect.center().y - viewport_center_y).abs();
-                                    if dist < best_dist {
-                                        best_dist = dist;
-                                        best_page = page_idx;
-                                    }
-
-                                    self.ensure_page_rendered(page_idx, ctx, size.x);
-                                    if let Some(texture) = self.page_cache.get(&page_idx) {
-                                        let tex_id = texture.id();
-                                        let painter = ui.painter();
-
-                                        painter.image(
-                                            tex_id,
-                                            page_rect,
-                                            Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
-                                            Color32::WHITE,
-                                        );
-
-                                        // Search highlights
-                                        let mut search_rects = Vec::new();
-                                        let mut active_rect = None;
-
-                                        for (i, &(pi, pr)) in self.search_bounds.iter().enumerate()
-                                        {
-                                            if pi == page_idx {
-                                                if i == self.search_current_match {
-                                                    active_rect = Some(pr);
-                                                } else {
-                                                    search_rects.push(pr);
-                                                }
-                                            }
-                                        }
-
-                                        for pr in search_rects {
-                                            if let Some(sr) =
-                                                self.pdf_rect_to_screen_page(&pr, page_idx)
-                                            {
-                                                painter.rect_filled(
-                                                    sr,
-                                                    2.0,
-                                                    Color32::from_rgba_premultiplied(
-                                                        0, 150, 255, 80,
-                                                    ),
-                                                );
-                                                painter.rect_stroke(
-                                                    sr,
-                                                    2.0,
-                                                    Stroke::new(
-                                                        1.5,
-                                                        Color32::from_rgb(0, 150, 255),
-                                                    ),
-                                                    egui::StrokeKind::Outside,
-                                                );
-                                            }
-                                        }
-
-                                        if let Some(pr) = active_rect {
-                                            if let Some(sr) =
-                                                self.pdf_rect_to_screen_page(&pr, page_idx)
-                                            {
-                                                painter.rect_filled(
-                                                    sr,
-                                                    2.0,
-                                                    Color32::from_rgba_premultiplied(
-                                                        255, 150, 0, 120,
-                                                    ),
-                                                );
-                                                painter.rect_stroke(
-                                                    sr,
-                                                    2.0,
-                                                    Stroke::new(
-                                                        2.5,
-                                                        Color32::from_rgb(255, 200, 0),
-                                                    ),
-                                                    egui::StrokeKind::Outside,
-                                                );
-                                            }
-                                        }
-
-                                        // Text selection highlights
-                                        let sel_rects: Vec<_> = self
-                                            .selected_rects
-                                            .iter()
-                                            .filter(|(pi, _)| *pi == page_idx)
-                                            .map(|(_, r)| *r)
-                                            .collect();
-
-                                        let mut screen_rects = Vec::new();
-                                        for pr in &sel_rects {
-                                            if let Some(sr) =
-                                                self.pdf_rect_to_screen_page(pr, page_idx)
-                                            {
-                                                screen_rects.push(sr);
-                                            }
-                                        }
-
-                                        let mut merged_rects: Vec<Rect> = Vec::new();
-                                        for sr in screen_rects {
-                                            if let Some(last) = merged_rects.last_mut() {
-                                                let center_y_diff =
-                                                    (sr.center().y - last.center().y).abs();
-                                                let height = sr.height().min(last.height());
-                                                if center_y_diff < height * 0.5 {
-                                                    let gap = sr.min.x - last.max.x;
-                                                    if gap < height * 2.0 && gap > -height {
-                                                        *last = last.union(sr);
-                                                        continue;
-                                                    }
-                                                }
-                                            }
-                                            merged_rects.push(sr);
-                                        }
-
-                                        for sr in merged_rects {
-                                            painter.rect_filled(
-                                                sr,
-                                                2.0,
-                                                Color32::from_rgba_premultiplied(80, 140, 255, 110),
-                                            );
-                                        }
-                                    }
-                                } else {
-                                    let painter = ui.painter();
-                                    painter.rect_filled(page_rect, 4.0, Color32::from_gray(40));
-                                    painter.text(
-                                        page_rect.center(),
-                                        egui::Align2::CENTER_CENTER,
-                                        format!("{}", page_idx + 1),
-                                        egui::FontId::proportional(14.0),
-                                        Color32::from_gray(80),
-                                    );
-                                }
-                                if response.hovered() {
-                                    let cursor = ctx
-                                        .input(|i| i.pointer.latest_pos())
-                                        .map(|pos| {
-                                            if self.is_pos_over_link(pos, page_idx) {
-                                                CursorIcon::PointingHand
-                                            } else if self.is_pos_over_text(pos, page_idx) {
-                                                CursorIcon::Text
-                                            } else {
-                                                CursorIcon::Default
-                                            }
-                                        })
-                                        .unwrap_or(CursorIcon::Default);
-                                    ctx.set_cursor_icon(cursor);
-                                }
-                                if response.clicked() {
-                                    // Check for internal link navigation first
-                                    let link_target = ctx
-                                        .input(|i| i.pointer.interact_pos())
-                                        .and_then(|pos| self.get_link_target_page(pos, page_idx));
-                                    if let Some(target_page) = link_target {
-                                        self.target_scroll_page = Some(target_page);
-                                    } else {
-                                        self.clear_selection();
-                                    }
-                                    ctx.request_repaint();
-                                }
-                                if response.double_clicked() {
-                                    let pos = ctx
-                                        .input(|i| i.pointer.interact_pos())
-                                        .unwrap_or(Pos2::ZERO);
-                                    self.select_word_at(pos, page_idx);
-                                    ctx.request_repaint();
-                                }
-                                if response.triple_clicked() {
-                                    let pos = ctx
-                                        .input(|i| i.pointer.interact_pos())
-                                        .unwrap_or(Pos2::ZERO);
-                                    self.select_line_at(pos, page_idx);
-                                    ctx.request_repaint();
-                                }
-                                if response.drag_started() {
-                                    self.clear_selection();
-                                    if let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) {
-                                        if let Some((px, py)) =
-                                            self.screen_to_pdf_page(pos, page_idx)
-                                        {
-                                            self.drag_start = Some((page_idx, Pos2::new(px, py)));
-                                            self.drag_end = self.drag_start;
-                                        }
-                                    }
-                                }
-
-                                if response.dragged() {
-                                    if let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) {
-                                        let target_page = self
-                                            .page_at_pos(pos)
-                                            .or_else(|| self.nearest_page_to_pos(pos));
-
-                                        if let Some(curr_page) = target_page {
-                                            if let Some((px, py)) =
-                                                self.screen_to_pdf_page(pos, curr_page)
-                                            {
-                                                self.drag_end =
-                                                    Some((curr_page, Pos2::new(px, py)));
-                                                self.update_selection();
-                                                ctx.request_repaint();
-                                            }
-                                        }
-                                    }
-                                }
-                            });
-
-                            ui.add_space(8.0);
+                    if is_visible {
+                        let dist = (page_rect.center().y - viewport_center_y).abs();
+                        if dist < best_dist {
+                            best_dist = dist;
+                            best_page = page_idx;
                         }
 
-                        ui.add_space(12.0);
-                    });
+                        self.ensure_page_rendered(page_idx, ctx, size.x);
 
-                self.scroll_offset = scroll_output.state.offset.y;
+                        let painter = ui.painter_at(viewport_rect);
+                        if let Some(texture) = self.page_cache.get(&page_idx) {
+                            let tex_id = texture.id();
+
+                            painter.image(
+                                tex_id,
+                                page_rect,
+                                Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                                Color32::WHITE,
+                            );
+
+                            // Search highlights
+                            let mut search_rects = Vec::new();
+                            let mut active_rect = None;
+
+                            for (i, &(pi, pr)) in self.search_bounds.iter().enumerate() {
+                                if pi == page_idx {
+                                    if i == self.search_current_match {
+                                        active_rect = Some(pr);
+                                    } else {
+                                        search_rects.push(pr);
+                                    }
+                                }
+                            }
+
+                            for pr in search_rects {
+                                if let Some(sr) = self.pdf_rect_to_screen_page(&pr, page_idx) {
+                                    painter.rect_filled(
+                                        sr,
+                                        2.0,
+                                        Color32::from_rgba_premultiplied(0, 150, 255, 80),
+                                    );
+                                    painter.rect_stroke(
+                                        sr,
+                                        2.0,
+                                        Stroke::new(1.5, Color32::from_rgb(0, 150, 255)),
+                                        egui::StrokeKind::Outside,
+                                    );
+                                }
+                            }
+
+                            if let Some(pr) = active_rect {
+                                if let Some(sr) = self.pdf_rect_to_screen_page(&pr, page_idx) {
+                                    painter.rect_filled(
+                                        sr,
+                                        2.0,
+                                        Color32::from_rgba_premultiplied(255, 150, 0, 120),
+                                    );
+                                    painter.rect_stroke(
+                                        sr,
+                                        2.0,
+                                        Stroke::new(2.5, Color32::from_rgb(255, 200, 0)),
+                                        egui::StrokeKind::Outside,
+                                    );
+                                }
+                            }
+
+                            // Text selection highlights
+                            let sel_rects: Vec<_> = self
+                                .selected_rects
+                                .iter()
+                                .filter(|(pi, _)| *pi == page_idx)
+                                .map(|(_, r)| *r)
+                                .collect();
+
+                            let mut screen_rects = Vec::new();
+                            for pr in &sel_rects {
+                                if let Some(sr) = self.pdf_rect_to_screen_page(pr, page_idx) {
+                                    screen_rects.push(sr);
+                                }
+                            }
+
+                            let mut merged_rects: Vec<Rect> = Vec::new();
+                            for sr in screen_rects {
+                                if let Some(last) = merged_rects.last_mut() {
+                                    let center_y_diff = (sr.center().y - last.center().y).abs();
+                                    let height = sr.height().min(last.height());
+                                    if center_y_diff < height * 0.5 {
+                                        let gap = sr.min.x - last.max.x;
+                                        if gap < height * 2.0 && gap > -height {
+                                            *last = last.union(sr);
+                                            continue;
+                                        }
+                                    }
+                                }
+                                merged_rects.push(sr);
+                            }
+
+                            for sr in merged_rects {
+                                painter.rect_filled(
+                                    sr,
+                                    2.0,
+                                    Color32::from_rgba_premultiplied(80, 140, 255, 110),
+                                );
+                            }
+                        }
+                    } else {
+                        // Only draw placeholder for pages near the viewport edge
+                        let near = page_rect.max.y > viewport_rect.min.y - viewport_rect.height()
+                            && page_rect.min.y < viewport_rect.max.y + viewport_rect.height();
+                        if near {
+                            let painter = ui.painter_at(viewport_rect);
+                            painter.rect_filled(page_rect, 4.0, Color32::from_gray(40));
+                            painter.text(
+                                page_rect.center(),
+                                egui::Align2::CENTER_CENTER,
+                                format!("{}", page_idx + 1),
+                                egui::FontId::proportional(14.0),
+                                Color32::from_gray(80),
+                            );
+                        }
+                    }
+
+                    // Per-page interaction — ui.interact does not advance the layout cursor
+                    let response = ui.interact(
+                        page_rect,
+                        ui.id().with(("page", page_idx)),
+                        Sense::click_and_drag(),
+                    );
+
+                    if response.hovered() {
+                        let cursor = ctx
+                            .input(|i| i.pointer.latest_pos())
+                            .map(|pos| {
+                                if self.is_pos_over_link(pos, page_idx) {
+                                    CursorIcon::PointingHand
+                                } else if self.is_pos_over_text(pos, page_idx) {
+                                    CursorIcon::Text
+                                } else {
+                                    CursorIcon::Default
+                                }
+                            })
+                            .unwrap_or(CursorIcon::Default);
+                        ctx.set_cursor_icon(cursor);
+                    }
+                    if response.clicked() {
+                        let link_target = ctx
+                            .input(|i| i.pointer.interact_pos())
+                            .and_then(|pos| self.get_link_target_page(pos, page_idx));
+                        if let Some(target_page) = link_target {
+                            self.target_scroll_page = Some(target_page);
+                        } else {
+                            self.clear_selection();
+                        }
+                        ctx.request_repaint();
+                    }
+                    if response.double_clicked() {
+                        let pos = ctx
+                            .input(|i| i.pointer.interact_pos())
+                            .unwrap_or(Pos2::ZERO);
+                        self.select_word_at(pos, page_idx);
+                        ctx.request_repaint();
+                    }
+                    if response.triple_clicked() {
+                        let pos = ctx
+                            .input(|i| i.pointer.interact_pos())
+                            .unwrap_or(Pos2::ZERO);
+                        self.select_line_at(pos, page_idx);
+                        ctx.request_repaint();
+                    }
+                    if response.drag_started() {
+                        self.clear_selection();
+                        if let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) {
+                            if let Some((px, py)) = self.screen_to_pdf_page(pos, page_idx) {
+                                self.drag_start = Some((page_idx, Pos2::new(px, py)));
+                                self.drag_end = self.drag_start;
+                            }
+                        }
+                    }
+                    if response.dragged() {
+                        if let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) {
+                            let target_page = self
+                                .page_at_pos(pos)
+                                .or_else(|| self.nearest_page_to_pos(pos));
+
+                            if let Some(curr_page) = target_page {
+                                if let Some((px, py)) = self.screen_to_pdf_page(pos, curr_page) {
+                                    self.drag_end = Some((curr_page, Pos2::new(px, py)));
+                                    self.update_selection();
+                                    ctx.request_repaint();
+                                }
+                            }
+                        }
+                    }
+                }
+
                 self.current_page = best_page;
 
                 // Autosave bookmark every 2 seconds
@@ -687,21 +740,26 @@ impl eframe::App for PdfViewer {
                 // Auto-scroll when dragging near edges
                 if self.drag_start.is_some() && ctx.input(|i| i.pointer.primary_down()) {
                     if let Some(pos) = ctx.input(|i| i.pointer.latest_pos()) {
-                        let scroll_zone = 60.0;
-                        let scroll_speed = 1200.0;
-                        let dt = ctx.input(|i| i.predicted_dt);
+                        let scroll_zone = 60.0_f32;
+                        let scroll_speed = 1200.0_f64;
+                        let dt = ctx.input(|i| i.predicted_dt) as f64;
                         let mut auto_scrolled = false;
 
                         if pos.y > viewport_rect.bottom() - scroll_zone {
                             let intensity =
-                                (pos.y - (viewport_rect.bottom() - scroll_zone)) / scroll_zone;
-                            self.scroll_offset += scroll_speed * intensity.clamp(0.0, 2.0) * dt;
+                                ((pos.y - (viewport_rect.bottom() - scroll_zone)) / scroll_zone)
+                                    as f64;
+                            self.offset = (self.offset
+                                + scroll_speed * intensity.clamp(0.0, 2.0) * dt)
+                                .clamp(0.0, max_offset);
                             auto_scrolled = true;
                         } else if pos.y < viewport_rect.top() + scroll_zone {
                             let intensity =
-                                ((viewport_rect.top() + scroll_zone) - pos.y) / scroll_zone;
-                            self.scroll_offset -= scroll_speed * intensity.clamp(0.0, 2.0) * dt;
-                            self.scroll_offset = self.scroll_offset.max(0.0);
+                                (((viewport_rect.top() + scroll_zone) - pos.y) / scroll_zone)
+                                    as f64;
+                            self.offset = (self.offset
+                                - scroll_speed * intensity.clamp(0.0, 2.0) * dt)
+                                .max(0.0);
                             auto_scrolled = true;
                         }
 
